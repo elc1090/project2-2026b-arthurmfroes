@@ -1,0 +1,23 @@
+# Binários Go
+backend/bin/
+backend/drive-clone
+*.exe
+*.test
+*.out
+
+# Diretórios de dados das réplicas
+data/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+
+# Ambiente e segredos
+.env
+*.pem
+
+# IDEs e SO
+.DS_Store
+.vscode/
+.idea/

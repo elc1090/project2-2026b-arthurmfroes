@@ -1,0 +1,185 @@
+name: drive-clone-dev
+
+x-backend-environment: &backend-environment
+  PORT: "8080"
+  DATABASE_URL: postgresql://root@cockroach-1:26257/drive_clone?sslmode=disable
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  S3_BUCKET: drive-clone
+  CLUSTER_BIND_ADDR: 0.0.0.0:7946
+  CLUSTER_SEEDS: backend-node-1:7946,backend-node-2:7946,backend-node-3:7946
+
+x-backend: &backend
+  build:
+    context: ./backend
+  restart: unless-stopped
+  expose:
+    - "8080"
+    - "7946"
+  depends_on:
+    cockroach-init:
+      condition: service_completed_successfully
+    minio-init:
+      condition: service_completed_successfully
+
+x-cockroach-environment: &cockroach-environment
+  PORT: "8080"
+  COCKROACH_JOIN: cockroach-1:26257,cockroach-2:26257,cockroach-3:26257
+
+x-cockroach: &cockroach
+  build:
+    context: ./cockroach
+  restart: unless-stopped
+  expose:
+    - "26257"
+    - "8080"
+
+services:
+  load-balancer:
+    build:
+      context: ./nginx
+    restart: unless-stopped
+    environment:
+      BACKEND_NODES: backend-node-1:8080 backend-node-2:8080 backend-node-3:8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend-node-1
+      - backend-node-2
+      - backend-node-3
+
+  backend-node-1:
+    <<: *backend
+    hostname: backend-node-1
+    environment:
+      <<: *backend-environment
+      NODE_ID: backend-node-1
+      CLUSTER_ADVERTISE_ADDR: backend-node-1:7946
+      S3_ENDPOINT: http://minio-1:9000
+
+  backend-node-2:
+    <<: *backend
+    hostname: backend-node-2
+    environment:
+      <<: *backend-environment
+      NODE_ID: backend-node-2
+      CLUSTER_ADVERTISE_ADDR: backend-node-2:7946
+      S3_ENDPOINT: http://minio-2:9000
+
+  backend-node-3:
+    <<: *backend
+    hostname: backend-node-3
+    environment:
+      <<: *backend-environment
+      NODE_ID: backend-node-3
+      CLUSTER_ADVERTISE_ADDR: backend-node-3:7946
+      S3_ENDPOINT: http://minio-3:9000
+
+  cockroach-1:
+    <<: *cockroach
+    hostname: cockroach-1
+    environment:
+      <<: *cockroach-environment
+      COCKROACH_ADVERTISE_ADDR: cockroach-1:26257
+    ports:
+      - "26257:26257"
+      - "8088:8080"
+    volumes:
+      - cockroach_1_data:/cockroach/cockroach-data
+
+  cockroach-2:
+    <<: *cockroach
+    hostname: cockroach-2
+    environment:
+      <<: *cockroach-environment
+      COCKROACH_ADVERTISE_ADDR: cockroach-2:26257
+    ports:
+      - "26258:26257"
+      - "8089:8080"
+    volumes:
+      - cockroach_2_data:/cockroach/cockroach-data
+
+  cockroach-3:
+    <<: *cockroach
+    hostname: cockroach-3
+    environment:
+      <<: *cockroach-environment
+      COCKROACH_ADVERTISE_ADDR: cockroach-3:26257
+    ports:
+      - "26259:26257"
+      - "8090:8080"
+    volumes:
+      - cockroach_3_data:/cockroach/cockroach-data
+
+  cockroach-init:
+    image: cockroachdb/cockroach:v23.2.0
+    restart: on-failure
+    entrypoint:
+      - /bin/sh
+      - /scripts/init-dev.sh
+    volumes:
+      - ./cockroach/init-dev.sh:/scripts/init-dev.sh:ro
+    depends_on:
+      - cockroach-1
+      - cockroach-2
+      - cockroach-3
+
+  minio-1:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_1_data:/data
+
+  minio-2:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+    volumes:
+      - minio_2_data:/data
+
+  minio-3:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9020:9000"
+      - "9021:9001"
+    volumes:
+      - minio_3_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    restart: on-failure
+    entrypoint:
+      - /bin/sh
+      - /scripts/init-dev.sh
+    volumes:
+      - ./minio/init-dev.sh:/scripts/init-dev.sh:ro
+    depends_on:
+      - minio-1
+      - minio-2
+      - minio-3
+
+volumes:
+  cockroach_1_data:
+  cockroach_2_data:
+  cockroach_3_data:
+  minio_1_data:
+  minio_2_data:
+  minio_3_data:
