@@ -123,5 +123,9 @@ permanece pendente.
 **2 GiB é referência de teste, não teto de arquivo.** O teste real desse tamanho
 está programado após as provas de recuperação; o espaço necessário foi liberado.
 
+O [script de desenvolvimento](docs/dev-entrypoint-verification-plan.md) foi executado
+com os defaults do Compose. Subida, reinício, sessão compartilhada e persistência
+do arquivo passaram pelos três backends e pelo Nginx.
+
 Requisitos e tarefas ficam em [OpenSpec](openspec/changes/implement-distributed-drive/).
 A política de agentes e worktrees fica em [docs/development-workflow.md](docs/development-workflow.md).

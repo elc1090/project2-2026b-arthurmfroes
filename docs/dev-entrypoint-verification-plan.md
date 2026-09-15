@@ -1,8 +1,8 @@
-# Verificação real de scripts/dev.sh — plano offline
+# Verificação real de scripts/dev.sh
 
 Objetivo de8.6: iniciar o Compose do repositório pelo script fornecido, validar
-bootstrap, login compartilhado e transferência pelos três backends. Esta entrega
-é planejamento: não executou Docker, HTTP, SQL, build ou medições do host.
+bootstrap, login compartilhado e transferência pelos três backends. O plano abaixo foi executado em 15/09/2026. Os resultados e limites da prova
+estão registrados ao final.
 
 ## Isolamento e restrições encontradas
 
@@ -116,3 +116,56 @@ foi autorizado. Enumerar paths/IDs/tamanho e preservar relatórios, checksums,
 journals e evidências antes. Não apagar versões S3 referenciadas nem volumes das
 stacks em uso para abrir espaço; não usar docker system prune ou varredura ampla
 por prefixo. Remoção de volumes exige decisão explícita do coordenador/usuário.
+
+## Defaults confirmados na imagem efetiva
+
+A consulta `cockroach start --help` da versão 23.2 confirmou cache padrão de
+128 MiB, corrigindo a hipótese anterior de cache proporcional ao host. O orçamento
+SQL padrão é 25% da memória disponível; no container limitado a 512 MiB, o help
+mostrou 128 MiB. O orçamento SQL é um limite, não memória toda reservada na partida.
+A prova do script com dados pequenos deve primeiro avaliar os defaults reais,
+sem introduzir limites externos apenas com base na estimativa anterior.
+Evidência: `/tmp/acervo-cockroach23-start-help.txt`.
+
+## Resultado executado em 15/09/2026
+
+`COMPOSE_PROJECT_NAME=acervo-dev-entrypoint-proof ./scripts/dev.sh -d` executou
+duas vezes com sucesso, antes e depois de `docker compose stop`. Os dois
+inicializadores terminaram com código 0. Os containers usaram os defaults do
+Compose, sem limites externos de CPU/RAM e sem OOM registrado. O namespace isolou
+volumes e rede; as portas publicadas foram as originais.
+
+O cliente `scripts/verify-dev-client.py` executou dentro do load-balancer:
+
+```sh
+docker compose -p acervo-dev-entrypoint-proof -f docker-compose.dev.yml exec -T load-balancer python3 - --execute < scripts/verify-dev-client.py
+# Após stop e nova execução do script, preservando os volumes:
+docker compose -p acervo-dev-entrypoint-proof -f docker-compose.dev.yml exec -T load-balancer python3 - --resume < scripts/verify-dev-client.py
+```
+
+A primeira fase registrou 49 requisições e a segunda 31. Houve respectivamente
+23 e 12 respostas 503, todas em `/health/ready` durante o bootstrap. As operações
+funcionais responderam 200, 201 ou 204. Login no nó 1 produziu uma sessão aceita
+pelos três nós, com a mesma identidade. O roteiro não repetiu logins independentes
+nos nós 2 e 3; essa variação do plano não foi executada nesta passagem.
+
+Três partes foram enviadas a backends distintos. Após publicação, o LB e cada
+backend devolveram o arquivo e listaram sua pasta e seu ID. Após reinício, a mesma
+verificação passou para o mesmo arquivo, sem novo upload:
+
+- Operação `c2fe5589-fceb-4e99-95ac-faf646734cbc`.
+- Arquivo `7d37c7b9-513c-4808-b1c7-1bafb6fde972`, 147 bytes.
+- SHA-256 `b18322872c115a7ce066679944ac3669e34d37f7e1ccd1dba1b3249189df59bc`.
+
+Os relatórios `/tmp/acervo-dev-client-report.json` e
+`/tmp/acervo-dev-client-resume-report.json` registram `complete=true`.
+O estado exportado contém IDs e checksum, sem credenciais. Logs de build,
+reinício e serviços estão em `/tmp/acervo-dev-entrypoint-*.log`. O inventário
+`/tmp/acervo-dev-entrypoint-images.json` registra imagens e limites efetivos.
+MinIO usou `69b2ec208575`, mc `c2ad77420d33` e Cockroach-init `69d4b04f16d9`.
+O build da entrada gerou `4c286dbb35aa`.
+
+Ao terminar, o projeto da prova foi parado e seus volumes preservados. Os dez
+containers que estavam ativos antes foram restaurados; os três backends voltaram
+a `ready`. O quarto nó retirado permaneceu parado. A prova funcional pequena
+não mede memória nem substitui o teste de 2 GiB.

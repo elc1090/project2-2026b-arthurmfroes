@@ -179,3 +179,10 @@ não duplicou a publicação. A publicação concorrente à sincronização tamb
 comprovada. Os dois arquivos tiveram suas versões físicas lidas em cada MinIO com
 os outros peers parados. Os relatos anteriores de tentativas inconclusivas ficam
 preservados como histórico, separados dessas provas concluídas.
+
+
+A [prova do script real](dev-entrypoint-verification-plan.md) passou na primeira
+subida e no reinício, preservando arquivo, pasta e sessão compartilhada entre nós.
+O Compose foi usado sem limites externos. A [associação pelo painel](../frontend/verification/browser-node-registration-result.md)
+também passou, incluindo download pelo proprietário no quarto nó e retirada
+confirmada no Cockroach e nos peers MinIO.

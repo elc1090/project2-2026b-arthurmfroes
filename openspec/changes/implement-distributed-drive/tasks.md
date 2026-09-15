@@ -67,7 +67,7 @@
 - [x] 8.3 Exercitar falha durante cópia, alteração de configuração, queda do gerenciador e recuperação com uploads concorrentes; verificar catálogo e SHA-256 por site, incluindo peers isolados.
 - [x] 8.4 Exercitar frontend e painel de ponta a ponta nos cenários das seis specs, incluindo seleção múltipla, erro/cancelamento isolados, queda de conexão, reabertura e falha do coordenador; verificar partes preservadas/perdidas, identidade divergente rejeitada e uma única publicação, distinguindo falhas injetadas, processo morto e rede interrompida.
 - [ ] 8.5 Transferir arquivos de 256 MiB e 2 GiB pelo navegador, com parâmetros iguais de partes/concorrência; registrar picos de memória do navegador e backend, confirmar ausência de buffers do arquivo inteiro e verificar SHA-256 final por site; declarar pendente se recursos impedirem execução real.
-- [ ] 8.6 Atualizar README e roteiro de demonstração com comandos, identidade Acervo, retomada, contratos de configuração, distinção entre limites por parte e referência de 2 GiB, e limites técnicos comprovados; verificar inicialização pelo scripts/dev.sh, go test ./..., validações do frontend e Docker Compose, sem declarar sucesso para passos não executados.
+- [x] 8.6 Atualizar README e roteiro de demonstração com comandos, identidade Acervo, retomada, contratos de configuração, distinção entre limites por parte e referência de 2 GiB, e limites técnicos comprovados; verificar inicialização pelo scripts/dev.sh, go test ./..., validações do frontend e Docker Compose, sem declarar sucesso para passos não executados.
 
 ## Quadro de execução
 
@@ -76,10 +76,10 @@ segunda fila. Atualizada pelo coordenador após delegação, integração ou blo
 
 | Frente | Responsável | Tarefas | Branch/worktree | Estado e próxima ação |
 | --- | --- | --- | --- | --- |
-| Coordenação | Agente principal | Contratos, integração e testes distribuídos | main / raiz do projeto | 44/46 concluídas; revisando prova do script e coordenando medição de memória |
+| Coordenação | Agente principal | Contratos, integração e testes distribuídos | main / raiz do projeto | 45/46 concluídas; medição comparativa de memória em andamento |
 | Controle e administração | backend_base | 6.1 e 6.4, associação e retirada definitiva | implementation/acervo-cluster-control / /tmp/acervo-cluster-control | Helper concluído e nó restaurado; aguardando próxima atribuição |
 | Base SQL | Sem executor ativo | 1.2 | implementation/acervo-backend-sql / /tmp/acervo-backend-sql | Inativa; entrega integrada e validada |
-| Uploads | infrastructure | 5.1–5.9 e cópia de recuperação | implementation/acervo-storage / /tmp/acervo-storage | Prova de scripts/dev.sh entregue; executor encerrado, revisão pelo coordenador |
+| Uploads | infrastructure | 5.1–5.9 e cópia de recuperação | implementation/acervo-storage / /tmp/acervo-storage | Prova de scripts/dev.sh integrada e verificada; executor encerrado |
 | Frontend | frontend | 8.5, memória em 256 MiB e 2 GiB | implementation/acervo-frontend / /tmp/acervo-frontend | Janela exclusiva para nova baseline de 256 MiB; depois 2 GiB |
 | Infraestrutura | Sem executor ativo | 1.3–1.5 | implementation/acervo-infra-runtime / /tmp/acervo-infra-runtime | Inativa; provas integradas e ambiente de teste restaurado |
 
@@ -753,3 +753,11 @@ Relatório frontend/verification/browser-node-registration-result.md complementa
 as provas de retomada, partes perdidas, SQL e dados antigos do painel.
 Infraestrutura entregou startup/restart pelo script real para revisão; frontend
 recebeu janela exclusiva para 256 MiB e depois 2 GiB, na mesma imagem.
+
+
+8.6 concluída, 45/46. Script real executado duas vezes, inicializadores exit0,
+sem limites externos/OOM. Cliente confirmou sessão nos três nós, partes distribuídas,
+quatro downloads e listagens, preservados após reinício. Relatórios execute/resume
+complete=true revisados; 503 restritos à espera de readiness. Dez containers
+anteriores restaurados, três ready. README e roteiro atualizados; verificações
+Go/frontend/Compose já passaram nos snapshots dos commits. Só 8.5 permanece aberta.
