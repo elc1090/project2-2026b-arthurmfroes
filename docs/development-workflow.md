@@ -29,8 +29,10 @@ Pode delegar um desses arquivos explicitamente a um único executor por vez.
 ## Branches, worktrees e integração
 
 Cada frente ativa usa uma branch e uma worktree exclusivas, criadas a partir da mesma
-base revisada que contém as specs. O coordenador registra caminhos e base no quadro
-de execução do tasks.md. Worktree é isolamento de arquivos, não de containers: testes
+base revisada que contém as specs. Se o ambiente bloquear a criação de worktrees
+vinculadas, usar checkouts independentes da mesma base em diretórios permitidos e
+registrar essa limitação. O coordenador registra caminhos e base no quadro de
+execução do tasks.md. Worktree é isolamento de arquivos, não de containers: testes
 simultâneos precisam de nomes de projeto Compose, portas e volumes distintos.
 
 Integrar entregas pequenas após revisar o diff e suas verificações. Quando commits
@@ -49,6 +51,16 @@ Um teste com respostas simuladas valida o contrato local; integração distribu�
 os serviços reais. A entrega registra essa distinção. Builds e ambientes de teste
 devem atender à verificação necessária, sem iniciar um servidor de desenvolvimento
 para o usuário ou interferir no ambiente que ele já executa.
+
+## Visibilidade da execução
+
+Informar ao usuário quais agentes, branches e worktrees estão ativos, com tarefa e
+status, ao iniciar ou encerrar uma rodada e quando surgir um bloqueio. Durante
+execuções longas, atualizar esse quadro aproximadamente a cada cinco minutos,
+mesmo que ainda não haja entrega. Distinguir executor trabalhando, aguardando
+dependência, em revisão e encerrado; identificar checkouts antigos como inativos.
+Manter as atualizações curtas e agrupadas, sem notificar cada comando. Registrar
+as mesmas transições no quadro de execução da change para permitir retomada.
 
 ## Retomada e revisão de requisitos
 
