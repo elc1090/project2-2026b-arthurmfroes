@@ -2,12 +2,19 @@ name: drive-clone-dev
 
 x-backend-environment: &backend-environment
   PORT: "8080"
-  DATABASE_URL: postgresql://root@cockroach-1:26257/drive_clone?sslmode=disable
+  NODE_BOOTSTRAP: "true"
   S3_ACCESS_KEY: minioadmin
   S3_SECRET_KEY: minioadmin
   S3_BUCKET: drive-clone
-  CLUSTER_BIND_ADDR: 0.0.0.0:7946
-  CLUSTER_SEEDS: backend-node-1:7946,backend-node-2:7946,backend-node-3:7946
+  CONTROL_TOKEN: acervo-development-control-token
+  CONTROL_INTERVAL: 2s
+  CONTROL_TIMEOUT: 2s
+  MANAGER_LEASE_TTL: 15s
+  FAILURE_THRESHOLD: "3"
+  SECURE_COOKIES: "false"
+  ENABLE_DEV_FAULTS: "true"
+  ADMIN_LOGIN: admin
+  ADMIN_PASSWORD: admin
 
 x-backend: &backend
   build:
@@ -15,12 +22,7 @@ x-backend: &backend
   restart: unless-stopped
   expose:
     - "8080"
-    - "7946"
-  depends_on:
-    cockroach-init:
-      condition: service_completed_successfully
-    minio-init:
-      condition: service_completed_successfully
+  # Readiness belongs to the backend; a failed global bootstrap must not block survivors.
 
 x-cockroach-environment: &cockroach-environment
   PORT: "8080"
@@ -37,10 +39,12 @@ x-cockroach: &cockroach
 services:
   load-balancer:
     build:
-      context: ./nginx
+      context: .
+      dockerfile: nginx/Dockerfile
     restart: unless-stopped
     environment:
-      BACKEND_NODES: backend-node-1:8080 backend-node-2:8080 backend-node-3:8080
+      CONTROL_ENDPOINTS: http://backend-node-1:8080 http://backend-node-2:8080 http://backend-node-3:8080
+      CONTROL_TOKEN: acervo-development-control-token
     ports:
       - "8080:8080"
     depends_on:
@@ -54,7 +58,8 @@ services:
     environment:
       <<: *backend-environment
       NODE_ID: backend-node-1
-      CLUSTER_ADVERTISE_ADDR: backend-node-1:7946
+      DATABASE_URL: postgresql://root@cockroach-1:26257/drive_clone?sslmode=disable
+      BACKEND_ENDPOINT: http://backend-node-1:8080
       S3_ENDPOINT: http://minio-1:9000
 
   backend-node-2:
@@ -63,7 +68,8 @@ services:
     environment:
       <<: *backend-environment
       NODE_ID: backend-node-2
-      CLUSTER_ADVERTISE_ADDR: backend-node-2:7946
+      DATABASE_URL: postgresql://root@cockroach-2:26257/drive_clone?sslmode=disable
+      BACKEND_ENDPOINT: http://backend-node-2:8080
       S3_ENDPOINT: http://minio-2:9000
 
   backend-node-3:
@@ -72,7 +78,8 @@ services:
     environment:
       <<: *backend-environment
       NODE_ID: backend-node-3
-      CLUSTER_ADVERTISE_ADDR: backend-node-3:7946
+      DATABASE_URL: postgresql://root@cockroach-3:26257/drive_clone?sslmode=disable
+      BACKEND_ENDPOINT: http://backend-node-3:8080
       S3_ENDPOINT: http://minio-3:9000
 
   cockroach-1:
@@ -125,7 +132,7 @@ services:
       - cockroach-3
 
   minio-1:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -138,7 +145,7 @@ services:
       - minio_1_data:/data
 
   minio-2:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -151,7 +158,7 @@ services:
       - minio_2_data:/data
 
   minio-3:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -164,7 +171,7 @@ services:
       - minio_3_data:/data
 
   minio-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     restart: on-failure
     entrypoint:
       - /bin/sh

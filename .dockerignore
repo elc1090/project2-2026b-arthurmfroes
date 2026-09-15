@@ -1,0 +1,8 @@
+.git
+**/node_modules
+**/dist
+data
+backend/bin
+**/.env
+**/.env.local
+**/*.pem
