@@ -1,32 +1,22 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Escreva os artefatos em português.
+  Antes de planejar execução paralela, implementar, revisar entregas ou retomar uma
+  change, leia docs/development-workflow.md na raiz deste repositório e aplique a
+  política de coordenação, isolamento e integração ali definida.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  design:
+    - Ao dividir trabalho entre agentes, identifique contratos compartilhados e responsáveis por arquivos comuns.
+  tasks:
+    - Registre dependências e frentes de execução sem duplicar a lista de tarefas; cada tarefa deve indicar sua verificação.
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+operations:
+  apply:
+    guidance:
+      - Consulte docs/development-workflow.md antes de delegar ou integrar; atualize o quadro de execução da change a cada entrega.
+      - Consolide tarefas concluídas somente após integração e verificação dos critérios; registre verificações pendentes explicitamente.
+  archive:
+    guidance:
+      - Confira as evidências e pendências do quadro de execução antes de recomendar o arquivamento.
