@@ -65,7 +65,7 @@
 - [x] 8.1 Criar suíte reproduzível com falha total de cada nó e falha isolada de cada componente; verificar prazos, retirada automática e upload/download pelos sobreviventes.
 - [x] 8.2 Exercitar partição real e perda de quorum SQL; verificar que lado isolado não atende com estado antigo nem confirma uploads.
 - [x] 8.3 Exercitar falha durante cópia, alteração de configuração, queda do gerenciador e recuperação com uploads concorrentes; verificar catálogo e SHA-256 por site, incluindo peers isolados.
-- [ ] 8.4 Exercitar frontend e painel de ponta a ponta nos cenários das seis specs, incluindo seleção múltipla, erro/cancelamento isolados, queda de conexão, reabertura e falha do coordenador; verificar partes preservadas/perdidas, identidade divergente rejeitada e uma única publicação, distinguindo falhas injetadas, processo morto e rede interrompida.
+- [x] 8.4 Exercitar frontend e painel de ponta a ponta nos cenários das seis specs, incluindo seleção múltipla, erro/cancelamento isolados, queda de conexão, reabertura e falha do coordenador; verificar partes preservadas/perdidas, identidade divergente rejeitada e uma única publicação, distinguindo falhas injetadas, processo morto e rede interrompida.
 - [ ] 8.5 Transferir arquivos de 256 MiB e 2 GiB pelo navegador, com parâmetros iguais de partes/concorrência; registrar picos de memória do navegador e backend, confirmar ausência de buffers do arquivo inteiro e verificar SHA-256 final por site; declarar pendente se recursos impedirem execução real.
 - [ ] 8.6 Atualizar README e roteiro de demonstração com comandos, identidade Acervo, retomada, contratos de configuração, distinção entre limites por parte e referência de 2 GiB, e limites técnicos comprovados; verificar inicialização pelo scripts/dev.sh, go test ./..., validações do frontend e Docker Compose, sem declarar sucesso para passos não executados.
 
@@ -76,11 +76,11 @@ segunda fila. Atualizada pelo coordenador após delegação, integração ou blo
 
 | Frente | Responsável | Tarefas | Branch/worktree | Estado e próxima ação |
 | --- | --- | --- | --- | --- |
-| Coordenação | Agente principal | Contratos, integração e testes distribuídos | main / raiz do projeto | 43/46 concluídas; commits organizados, próxima rodada: formulário do quarto nó |
+| Coordenação | Agente principal | Contratos, integração e testes distribuídos | main / raiz do projeto | 44/46 concluídas; revisando prova do script e coordenando medição de memória |
 | Controle e administração | backend_base | 6.1 e 6.4, associação e retirada definitiva | implementation/acervo-cluster-control / /tmp/acervo-cluster-control | Helper concluído e nó restaurado; aguardando próxima atribuição |
 | Base SQL | Sem executor ativo | 1.2 | implementation/acervo-backend-sql / /tmp/acervo-backend-sql | Inativa; entrega integrada e validada |
-| Uploads | infrastructure | 5.1–5.9 e cópia de recuperação | implementation/acervo-storage / /tmp/acervo-storage | Provas de sincronização e cópias físicas aprovadas; aguardando próxima atribuição |
-| Frontend | frontend | 7.4, registro e retirada no painel | implementation/acervo-frontend / /tmp/acervo-frontend | Retomada65MiB e SQL/stale aprovados; aguardando formulário de associação do quarto nó |
+| Uploads | infrastructure | 5.1–5.9 e cópia de recuperação | implementation/acervo-storage / /tmp/acervo-storage | Prova de scripts/dev.sh entregue; executor encerrado, revisão pelo coordenador |
+| Frontend | frontend | 8.5, memória em 256 MiB e 2 GiB | implementation/acervo-frontend / /tmp/acervo-frontend | Janela exclusiva para nova baseline de 256 MiB; depois 2 GiB |
 | Infraestrutura | Sem executor ativo | 1.3–1.5 | implementation/acervo-infra-runtime / /tmp/acervo-infra-runtime | Inativa; provas integradas e ambiente de teste restaurado |
 
 As demais frentes aguardam as dependências descritas na seção 11 do design.
@@ -737,3 +737,19 @@ Commits já criados nesta organização:
 - 76af6da test(infra): verify persistent bootstrap and independent MinIO copies
 - bfd55e4 test(distributed): prove failover, publication fencing and isolated reads
 - 918f42b test(frontend): record resumable uploads, node loss and memory evidence
+
+
+Organização concluída em14commits, HEADa324cac e worktree raiz limpa antes de
+retomar. Sem push. Infraestrutura recebeu janela para provisionar quarto nó, sem
+registro viaAPI; frontend fará associação pelo formulário após liberação.
+Worktrees dos executores preservadas na base8496c5f; entregas novas serão revisadas
+e commitadas pelo coordenador na main, sem resetar seus arquivos.
+
+
+8.4 concluída, 44/46. Associação pelo formulário, leitura pelo proprietário e
+retirada do quarto nó aprovadas. Conferência externa confirmou decommission SQL,
+remoção dos peers MinIO e um único arquivo na operação retomada de 65 MiB.
+Relatório frontend/verification/browser-node-registration-result.md complementa
+as provas de retomada, partes perdidas, SQL e dados antigos do painel.
+Infraestrutura entregou startup/restart pelo script real para revisão; frontend
+recebeu janela exclusiva para 256 MiB e depois 2 GiB, na mesma imagem.
