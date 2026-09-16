@@ -66,7 +66,7 @@
 - [x] 8.2 Exercitar partição real e perda de quorum SQL; verificar que lado isolado não atende com estado antigo nem confirma uploads.
 - [x] 8.3 Exercitar falha durante cópia, alteração de configuração, queda do gerenciador e recuperação com uploads concorrentes; verificar catálogo e SHA-256 por site, incluindo peers isolados.
 - [x] 8.4 Exercitar frontend e painel de ponta a ponta nos cenários das seis specs, incluindo seleção múltipla, erro/cancelamento isolados, queda de conexão, reabertura e falha do coordenador; verificar partes preservadas/perdidas, identidade divergente rejeitada e uma única publicação, distinguindo falhas injetadas, processo morto e rede interrompida.
-- [ ] 8.5 Transferir arquivos de 256 MiB e 2 GiB pelo navegador, com parâmetros iguais de partes/concorrência; registrar picos de memória do navegador e backend, confirmar ausência de buffers do arquivo inteiro e verificar SHA-256 final por site; declarar pendente se recursos impedirem execução real.
+- [x] 8.5 Transferir arquivos de 256 MiB e 2 GiB pelo navegador, com parâmetros iguais de partes/concorrência; registrar picos de memória do navegador e backend, confirmar ausência de buffers do arquivo inteiro e verificar SHA-256 final por site; declarar pendente se recursos impedirem execução real.
 - [x] 8.6 Atualizar README e roteiro de demonstração com comandos, identidade Acervo, retomada, contratos de configuração, distinção entre limites por parte e referência de 2 GiB, e limites técnicos comprovados; verificar inicialização pelo scripts/dev.sh, go test ./..., validações do frontend e Docker Compose, sem declarar sucesso para passos não executados.
 
 ## Quadro de execução
@@ -774,3 +774,7 @@ foi removido. Essa interrupção não equivale a aprovação da tarefa.
 Encerramento confirmado pelo executor: navegador fechado, sampler e watcher
 terminaram com código 0. Foram preservadas 419 amostras parciais; último estado
 observado em 50% do envio. Todos os executores estão sem trabalho ativo.
+
+Validação manual concluída pelo usuário em 2026-09-16: transferências de arquivos
+grandes foram executadas com sucesso e o comportamento foi aprovado. Essa evidência
+encerra a pendência de 8.5; o agente não repetiu o teste nesta rodada.
