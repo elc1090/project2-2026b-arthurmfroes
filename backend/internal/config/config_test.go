@@ -91,6 +91,29 @@ func TestControlConfiguration(t *testing.T) {
 	}
 }
 
+func TestFaultActuatorConfiguration(t *testing.T) {
+	env := validEnv()
+	env["FAULT_ACTUATOR_URL"] = "http://fault-actuator:8090"
+	env["FAULT_ACTUATOR_TOKEN"] = "internal-secret"
+	cfg, err := Load(func(key string) string { return env[key] })
+	if err != nil || cfg.FaultActuatorURL != env["FAULT_ACTUATOR_URL"] || cfg.FaultActuatorToken != env["FAULT_ACTUATOR_TOKEN"] {
+		t.Fatalf("config=%+v err=%v", cfg, err)
+	}
+	for name, invalid := range map[string]struct{ url, token string }{
+		"missing token": {"http://fault-actuator:8090", ""},
+		"missing URL":   {"", "internal-secret"},
+		"path":          {"http://fault-actuator:8090/private", "internal-secret"},
+		"userinfo":      {"http://secret@fault-actuator:8090", "internal-secret"},
+	} {
+		env := validEnv()
+		env["FAULT_ACTUATOR_URL"] = invalid.url
+		env["FAULT_ACTUATOR_TOKEN"] = invalid.token
+		if _, err := Load(func(key string) string { return env[key] }); err == nil {
+			t.Fatalf("accepted %s: %+v", name, invalid)
+		}
+	}
+}
+
 func TestBootstrapRequiresExplicitConfiguration(t *testing.T) {
 	for _, value := range []string{"", "false", "true"} {
 		env := validEnv()

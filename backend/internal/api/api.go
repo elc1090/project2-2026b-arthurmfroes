@@ -14,7 +14,6 @@ import (
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/admin"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/catalog"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/cluster"
-	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/faults"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/lifecycle"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/storage"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/uploads"
@@ -38,7 +37,7 @@ func (a *API) Handler() http.Handler {
 		if a.Admin.Nodes != nil {
 			a.nodeRoutes(mux)
 		}
-		mux.HandleFunc("POST /api/admin/nodes/{id}/fault", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("POST /api/admin/fault-actions", func(w http.ResponseWriter, r *http.Request) {
 			user, ok := a.user(w, r)
 			if !ok {
 				return
@@ -47,21 +46,16 @@ func (a *API) Handler() http.Handler {
 				writeError(w, 403, "admin_required")
 				return
 			}
-			if a.Admin.Faults == nil || !a.Admin.Faults.Enabled {
-				writeError(w, 404, "simulation_disabled")
-				return
-			}
-			var input struct {
-				Mode faults.Mode `json:"mode"`
-			}
+			var input admin.FaultRequest
 			if !decode(w, r, &input) {
 				return
 			}
-			if err := a.Admin.Faults.Set(r.Context(), r.PathValue("id"), input.Mode); err != nil {
+			action, err := a.Admin.StartFault(r.Context(), input)
+			if err != nil {
 				failure(w, err)
 				return
 			}
-			w.WriteHeader(204)
+			respond(w, http.StatusAccepted, action)
 		})
 		mux.HandleFunc("GET /api/admin/cluster", func(w http.ResponseWriter, r *http.Request) {
 			user, ok := a.user(w, r)
@@ -160,9 +154,9 @@ func failure(w http.ResponseWriter, err error) {
 		writeError(w, 409, "content_mismatch")
 	case errors.Is(err, uploads.ErrConflict), errors.Is(err, accounts.ErrConflict), errors.Is(err, catalog.ErrConflict):
 		writeError(w, 409, "conflict")
-	case errors.Is(err, faults.ErrNotFound), errors.Is(err, uploads.ErrNotFound), errors.Is(err, catalog.ErrNotFound):
+	case errors.Is(err, uploads.ErrNotFound), errors.Is(err, catalog.ErrNotFound):
 		writeError(w, 404, "not_found")
-	case errors.Is(err, faults.ErrInvalid), errors.Is(err, uploads.ErrInvalid), errors.Is(err, accounts.ErrInvalid), errors.Is(err, catalog.ErrInvalid):
+	case errors.Is(err, admin.ErrFaultInvalid), errors.Is(err, uploads.ErrInvalid), errors.Is(err, accounts.ErrInvalid), errors.Is(err, catalog.ErrInvalid):
 		writeError(w, 400, "invalid_input")
 	case errors.As(err, &pg) && pg.Code == "22P02":
 		writeError(w, 400, "invalid_input")

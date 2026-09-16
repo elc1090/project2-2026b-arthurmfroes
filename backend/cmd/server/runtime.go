@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -20,7 +19,6 @@ import (
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/config"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/control"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/database"
-	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/faults"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/lifecycle"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/storage"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/uploads"
@@ -121,40 +119,18 @@ func prepareRuntime(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, 
 	if node.StorageGeneration != observation.StorageGeneration {
 		return nil, lifecycle.ErrBlocked
 	}
-	simulations := faults.New(pool, cfg.EnableDevFaults)
 	var transfers *uploads.Service
-	controller, err := control.New(control.Config{LocalGate: func(ctx context.Context, component string) error { return simulations.Check(ctx, node.ID, component) }, Sync: func(ctx context.Context, target cluster.Node, plan cluster.RecoveryPlan) error {
+	controller, err := control.New(control.Config{Sync: func(ctx context.Context, target cluster.Node, plan cluster.RecoveryPlan) error {
 		return transfers.SyncPublished(ctx, target, plan)
 	}, Pool: pool, Store: registry, Local: node, Token: cfg.ControlToken, StorageProbe: localStorage.Check, Interval: cfg.ControlInterval, Timeout: cfg.ControlTimeout, LeaseTTL: cfg.LeaseTTL, FailureThreshold: cfg.FailureThreshold})
 	if err != nil {
 		return nil, err
 	}
 	guard := func(ctx context.Context, tx pgx.Tx) error {
-		if err := cluster.Guard(ctx, tx, node.ID); err != nil {
-			return err
-		}
-		if cfg.EnableDevFaults {
-			var mode string
-			if err := tx.QueryRow(ctx, "SELECT COALESCE((SELECT mode FROM node_faults WHERE node_id=$1),'none')", node.ID).Scan(&mode); err != nil {
-				return err
-			}
-			if mode != "none" {
-				return faults.ErrInjected
-			}
-		}
-		return nil
+		return cluster.Guard(ctx, tx, node.ID)
 	}
 	storageFor := func(peer cluster.Node) (*storage.Store, error) {
-		return storage.New(storage.Options{Endpoint: peer.StorageEndpoint, AccessKey: cfg.S3AccessKey, SecretKey: cfg.S3SecretKey, Bucket: cfg.S3Bucket, BeforeOperation: func(ctx context.Context) error {
-			mode, err := simulations.Current(ctx, peer.ID)
-			if err != nil {
-				return err
-			}
-			if mode != faults.None {
-				return faults.ErrInjected
-			}
-			return nil
-		}})
+		return storage.New(storage.Options{Endpoint: peer.StorageEndpoint, AccessKey: cfg.S3AccessKey, SecretKey: cfg.S3SecretKey, Bucket: cfg.S3Bucket})
 	}
 	gatedStorage, err := storageFor(node)
 	if err != nil {
@@ -164,47 +140,25 @@ func prepareRuntime(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, 
 	if err != nil {
 		return nil, err
 	}
-	private := &api.API{Admin: &admin.Service{Pool: pool, Faults: simulations, Nodes: topology}, Uploads: transfers, Accounts: accounts.Service{Pool: pool, Guard: guard}, Catalog: catalog.Service{Pool: pool, Guard: guard}, SecureCookies: cfg.SecureCookies, Eligible: func(r *http.Request) error {
+	var faultControl admin.FaultControl
+	if cfg.FaultActuatorURL != "" {
+		faultControl, err = admin.NewHTTPFaultControl(cfg.FaultActuatorURL, cfg.FaultActuatorToken)
+		if err != nil {
+			return nil, err
+		}
+	}
+	private := &api.API{Admin: &admin.Service{Pool: pool, FaultControl: faultControl, Nodes: topology}, Uploads: transfers, Accounts: accounts.Service{Pool: pool, Guard: guard}, Catalog: catalog.Service{Pool: pool, Guard: guard}, SecureCookies: cfg.SecureCookies, Eligible: func(r *http.Request) error {
 		check, cancel := context.WithTimeout(r.Context(), cfg.ControlTimeout)
 		defer cancel()
 		return controller.Eligible(check)
 	}}
 	internal := http.NewServeMux()
-	internal.HandleFunc("POST /internal/faults", func(w http.ResponseWriter, r *http.Request) {
-		if !cfg.EnableDevFaults {
-			http.NotFound(w, r)
-			return
-		}
-		expected := sha256.Sum256([]byte("Bearer " + cfg.ControlToken))
-		actual := sha256.Sum256([]byte(r.Header.Get("Authorization")))
-		if subtle.ConstantTimeCompare(expected[:], actual[:]) != 1 {
-			http.Error(w, "unauthorized", 401)
-			return
-		}
-		var input struct {
-			Mode faults.Mode `json:"mode"`
-		}
-		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&input) != nil || input.Mode != faults.None {
-			http.Error(w, "only restoration is allowed", 400)
-			return
-		}
-		if err := simulations.Set(r.Context(), node.ID, faults.None); err != nil {
-			http.Error(w, "restoration unavailable", 503)
-			return
-		}
-		w.WriteHeader(204)
-	})
 	controlHandler := controller.Handler()
 	internal.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		expected := sha256.Sum256([]byte("Bearer " + cfg.ControlToken))
 		actual := sha256.Sum256([]byte(r.Header.Get("Authorization")))
 		if subtle.ConstantTimeCompare(expected[:], actual[:]) != 1 {
 			http.Error(w, "unauthorized", 401)
-			return
-		}
-
-		if simulations.Check(r.Context(), node.ID, "backend") != nil || simulations.Check(r.Context(), node.ID, "control") != nil || simulations.Check(r.Context(), node.ID, "sql") != nil && r.URL.Path != "/internal/probe" {
-			http.Error(w, "control unavailable", 503)
 			return
 		}
 		controlHandler.ServeHTTP(w, r)

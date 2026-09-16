@@ -12,8 +12,8 @@ import (
 type Config struct {
 	AdminProfilesFile                         string
 	BootstrapNode                             bool
-	EnableDevFaults                           bool
 	AdminLogin, AdminPassword                 string
+	FaultActuatorURL, FaultActuatorToken      string
 	Port                                      int
 	NodeID                                    string
 	DatabaseURL                               string
@@ -102,13 +102,6 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 		c.SecureCookies = value
 	}
-	if raw := getenv("ENABLE_DEV_FAULTS"); raw != "" {
-		enabled, err := strconv.ParseBool(raw)
-		if err != nil {
-			return Config{}, fmt.Errorf("ENABLE_DEV_FAULTS must be a boolean")
-		}
-		c.EnableDevFaults = enabled
-	}
 	if raw := getenv("NODE_BOOTSTRAP"); raw != "" {
 		bootstrap, err := strconv.ParseBool(raw)
 		if err != nil {
@@ -119,8 +112,22 @@ func Load(getenv func(string) string) (Config, error) {
 	c.AdminLogin = getenv("ADMIN_LOGIN")
 	c.AdminProfilesFile = getenv("ADMIN_PROFILES_FILE")
 	c.AdminPassword = getenv("ADMIN_PASSWORD")
+	c.FaultActuatorURL = getenv("FAULT_ACTUATOR_URL")
+	c.FaultActuatorToken = getenv("FAULT_ACTUATOR_TOKEN")
 	if (c.AdminLogin == "") != (c.AdminPassword == "") {
 		return Config{}, fmt.Errorf("ADMIN_LOGIN and ADMIN_PASSWORD must be configured together")
+	}
+	if (c.FaultActuatorURL == "") != (c.FaultActuatorToken == "") {
+		return Config{}, fmt.Errorf("FAULT_ACTUATOR_URL and FAULT_ACTUATOR_TOKEN must be configured together")
+	}
+	if c.FaultActuatorURL != "" {
+		if err := validateURL(c.FaultActuatorURL, "FAULT_ACTUATOR_URL", false); err != nil {
+			return Config{}, err
+		}
+		u, _ := url.Parse(c.FaultActuatorURL)
+		if u.Path != "" && u.Path != "/" {
+			return Config{}, fmt.Errorf("FAULT_ACTUATOR_URL must be an origin without a path")
+		}
 	}
 	return c, nil
 }

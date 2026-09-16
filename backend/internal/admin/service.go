@@ -4,24 +4,24 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/database"
-	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/faults"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Service struct {
-	Nodes  *NodeManager
-	Pool   *pgxpool.Pool
-	Faults *faults.Service
+	Nodes        *NodeManager
+	Pool         *pgxpool.Pool
+	FaultControl FaultControl
 }
 type Node struct {
-	Simulation       faults.Mode     `json:"simulation"`
 	ID               string          `json:"id"`
 	NodeID           string          `json:"node_id"`
 	State            string          `json:"state"`
+	Routed           bool            `json:"routed"`
 	Health           json.RawMessage `json:"health"`
 	Reason           *string         `json:"reason"`
 	ObservedAt       *time.Time      `json:"observed_at"`
@@ -45,44 +45,45 @@ type Transfer struct {
 	ErrorCode      *string `json:"error_code"`
 }
 type Event struct {
-	ID                   string    `json:"id"`
-	NodeID               *string   `json:"node_id"`
-	Kind                 string    `json:"kind"`
-	ConfigurationVersion int64     `json:"configuration_version"`
-	At                   time.Time `json:"at"`
+	ID                   string            `json:"id"`
+	NodeID               *string           `json:"node_id"`
+	Kind                 string            `json:"kind"`
+	ConfigurationVersion int64             `json:"configuration_version"`
+	ManagerTerm          int64             `json:"manager_term"`
+	Details              map[string]string `json:"details"`
+	At                   time.Time         `json:"at"`
 }
 type View struct {
-	Nodes                 []Node     `json:"nodes"`
-	Operations            []Transfer `json:"operations"`
-	Events                []Event    `json:"events"`
-	Version               int64      `json:"version"`
-	PublicationGeneration int64      `json:"publication_generation"`
-	ManagerID             *string    `json:"manager_id"`
-	ManagerTerm           int64      `json:"manager_term"`
-	LeaseExpiresAt        *time.Time `json:"lease_expires_at"`
-	ObservedAt            time.Time  `json:"observed_at"`
-	SimulationEnabled     bool       `json:"simulation_enabled"`
+	Nodes                 []Node        `json:"nodes"`
+	Operations            []Transfer    `json:"operations"`
+	Events                []Event       `json:"events"`
+	Version               int64         `json:"version"`
+	PublicationGeneration int64         `json:"publication_generation"`
+	ManagerID             *string       `json:"manager_id"`
+	ManagerTerm           int64         `json:"manager_term"`
+	LeaseExpiresAt        *time.Time    `json:"lease_expires_at"`
+	ObservedAt            time.Time     `json:"observed_at"`
+	FaultActions          []FaultAction `json:"fault_actions"`
+	FaultControlAvailable bool          `json:"fault_control_available"`
+	FaultControlError     *string       `json:"fault_control_error"`
 }
 
 func (s Service) View(ctx context.Context) (View, error) {
 	var result View
 	err := database.WithTx(ctx, s.Pool, func(tx pgx.Tx) error {
-		result = View{Nodes: []Node{}, Operations: []Transfer{}, Events: []Event{}, SimulationEnabled: s.Faults != nil && s.Faults.Enabled}
+		result = View{Nodes: []Node{}, Operations: []Transfer{}, Events: []Event{}, FaultActions: []FaultAction{}}
 		if err := tx.QueryRow(ctx, "SELECT c.version,c.publication_generation,l.holder_id::STRING,l.term,l.expires_at,clock_timestamp() FROM cluster_configuration c CROSS JOIN manager_lease l WHERE c.singleton AND l.singleton").Scan(&result.Version, &result.PublicationGeneration, &result.ManagerID, &result.ManagerTerm, &result.LeaseExpiresAt, &result.ObservedAt); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, "SELECT n.id::STRING,n.node_id,n.state,n.health,n.reason,n.observed_at,n.transitioned_at,n.synced_publication_generation,COALESCE(f.mode,'none') FROM cluster_nodes n LEFT JOIN node_faults f ON f.node_id=n.id ORDER BY n.node_id")
+		rows, err := tx.Query(ctx, "SELECT n.id::STRING,n.node_id,n.state,m.node_id IS NOT NULL,n.health,n.reason,n.observed_at,n.transitioned_at,n.synced_publication_generation FROM cluster_nodes n LEFT JOIN cluster_membership m ON m.node_id=n.id ORDER BY n.node_id")
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
 			var n Node
-			if err = rows.Scan(&n.ID, &n.NodeID, &n.State, &n.Health, &n.Reason, &n.ObservedAt, &n.TransitionedAt, &n.SyncedGeneration, &n.Simulation); err != nil {
+			if err = rows.Scan(&n.ID, &n.NodeID, &n.State, &n.Routed, &n.Health, &n.Reason, &n.ObservedAt, &n.TransitionedAt, &n.SyncedGeneration); err != nil {
 				rows.Close()
 				return err
-			}
-			if !result.SimulationEnabled {
-				n.Simulation = faults.None
 			}
 			result.Nodes = append(result.Nodes, n)
 		}
@@ -129,20 +130,61 @@ func (s Service) View(ctx context.Context) (View, error) {
 				return err
 			}
 		}
-		rows, err = tx.Query(ctx, "SELECT id::STRING,node_id::STRING,kind,configuration_version,created_at FROM cluster_events ORDER BY created_at DESC,id DESC LIMIT 100")
+		rows, err = tx.Query(ctx, "SELECT id::STRING,node_id::STRING,kind,configuration_version,manager_term,details,created_at FROM cluster_events ORDER BY created_at DESC,id DESC LIMIT 100")
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
 			var e Event
-			if err = rows.Scan(&e.ID, &e.NodeID, &e.Kind, &e.ConfigurationVersion, &e.At); err != nil {
+			var details []byte
+			if err = rows.Scan(&e.ID, &e.NodeID, &e.Kind, &e.ConfigurationVersion, &e.ManagerTerm, &details, &e.At); err != nil {
 				rows.Close()
 				return err
 			}
+			e.Details = safeEventDetails(details)
 			result.Events = append(result.Events, e)
 		}
 		rows.Close()
 		return rows.Err()
 	})
-	return result, err
+	if err != nil {
+		return result, err
+	}
+	if s.FaultControl == nil {
+		message := "Controle de falhas não configurado."
+		result.FaultControlError = &message
+		return result, nil
+	}
+	actions, err := s.FaultControl.Actions(ctx)
+	if err != nil {
+		message := "Controle de falhas indisponível."
+		result.FaultControlError = &message
+		return result, nil
+	}
+	result.FaultActions = actions
+	result.FaultControlAvailable = true
+	return result, nil
+}
+
+func safeEventDetails(raw []byte) map[string]string {
+	result := map[string]string{}
+	var input map[string]any
+	if json.Unmarshal(raw, &input) != nil {
+		return result
+	}
+	allowed := map[string]bool{"reason": true, "stage": true, "operation": true, "previous_deployment": true, "observed_deployment": true, "action": true, "component": true, "status": true}
+	for key, value := range input {
+		if !allowed[key] {
+			continue
+		}
+		switch value := value.(type) {
+		case string:
+			if len(value) <= 256 {
+				result[key] = value
+			}
+		case bool:
+			result[key] = fmt.Sprint(value)
+		}
+	}
+	return result
 }
