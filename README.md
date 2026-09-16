@@ -13,8 +13,8 @@ replicação. O gerenciador é eleito entre os backends por uma concessão no SQ
 ## Executar em desenvolvimento
 
 É necessário Docker com o plugin Compose e recursos para três bancos, três storages,
-três backends e a entrada Nginx. O script constrói as imagens, incluindo a interface,
-e inicia o Compose de desenvolvimento:
+três backends, o atuador de falhas e a entrada Nginx. O script constrói as imagens,
+incluindo a interface, e inicia o Compose de desenvolvimento:
 
 ```sh
 ./scripts/dev.sh
@@ -54,6 +54,11 @@ MinIO correspondentes; o Nginx recebe do gerenciador a composição elegível. O
 interno do projeto Compose continua `drive-clone-dev`, o banco `drive_clone` e o
 bucket `drive-clone`, preservando a configuração dos volumes existentes.
 
+O atuador fica acessível somente na rede do Compose e é o único serviço que monta
+`/var/run/docker.sock`. Os botões administrativos pedem que ele pause ou retome o
+container cadastrado. O gerenciador não recebe essa intenção: detecta a ausência
+pelas sondagens, altera a composição e o Nginx publica as novas rotas.
+
 ## Transferências e consistência
 
 O seletor aceita vários arquivos, de qualquer tipo, inclusive vazios. A interface
@@ -83,7 +88,8 @@ máquinas e não exige configuração de provedor específico.
 Credenciais não são informadas no painel. Associação, retirada e recuperação têm
 etapas persistidas; concluir a associação não substitui a sincronização necessária
 para admissão. Falhas temporárias removem o nó automaticamente do atendimento, sem
-apagar volumes. Restaurar uma simulação não promove o nó diretamente para `ready`.
+apagar volumes. Retomar o container não promove o nó diretamente para `ready`:
+saúde, sincronização e readmissão continuam sob responsabilidade do cluster.
 
 ## Verificações e roteiro
 
@@ -104,7 +110,7 @@ um teste pulado não comprova comportamento distribuído.
 
 As evidências registradas incluem [bootstrap e persistência MinIO](docs/infrastructure-verification.md),
 [a primeira passagem pelo navegador](frontend/verification/browser-first-pass.md)
-e [publicação, retomada e falhas simuladas](frontend/verification/browser-resume-and-faults.md).
+e [publicação e retomada](frontend/verification/browser-resume-and-faults.md).
 A segunda passagem verificou download de 34 MiB com SHA-256 idêntico, rejeição de
 arquivo reselecionado divergente, erro isolado e sucessão do gerenciador pelo painel.
 
@@ -127,5 +133,9 @@ O [script de desenvolvimento](docs/dev-entrypoint-verification-plan.md) foi exec
 com os defaults do Compose. Subida, reinício, sessão compartilhada e persistência
 do arquivo passaram pelos três backends e pelo Nginx.
 
-Requisitos e tarefas ficam em [OpenSpec](openspec/changes/implement-distributed-drive/).
+A [prova do atuador real](docs/fault-control-verification.md) registra pausa de
+storage, nó completo e gerenciador, sucessão por expiração do lease e publicação
+de upload pelos sobreviventes com checksum idêntico após a readmissão.
+
+Requisitos e tarefas ficam em [OpenSpec](openspec/changes/add-real-fault-control-and-cluster-diagram/).
 A política de agentes e worktrees fica em [docs/development-workflow.md](docs/development-workflow.md).

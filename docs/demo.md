@@ -44,19 +44,21 @@ servidores. Logout deve retirar da tela a fila privada da conta anterior.
 
 ## Falhas no painel
 
-Entre com a conta administrativa e abra Administração. Observe identidade, estado,
-componentes, horário de observação/transição, configuração, gerenciador e mandato.
+Entre com a conta administrativa e abra Administração. O diagrama parte do load
+balancer, mostra as rotas publicadas e agrupa backend, banco e storage em cada nó.
+O gerenciador aparece no próprio nó; versão, mandato e horários ficam nos detalhes.
 Observação ausente ou desatualizada não deve parecer uma medição atual.
 
 Escolha **um nó de cada vez**, provoque falha de storage e aguarde a retirada automática.
-O painel separa a confirmação da solicitação do estado observado. Restaure com
-`Restaurar nó`; aguarde sincronização e retorno a `Pronto` antes do próximo cenário.
+O painel separa a ação do atuador da falha observada, retirada, atualização de rota,
+restauração, sincronização e readmissão. Restaure com `Restaurar serviço`; aguarde
+o retorno a `Pronto` antes do próximo cenário.
 Repita o procedimento para uma falha total no gerenciador e observe a sucessão.
 
-O painel também oferece backend, banco local e comunicação de controle. A simulação
-só aparece quando `ENABLE_DEV_FAULTS=true`. As operações do gerenciador continuam com
-o painel fechado. Processos mortos e rede Docker interrompida exigem uma rodada de
-teste própria, coordenada com quem usa os mesmos containers.
+O painel oferece backend, banco local, storage e nó inteiro. No Compose, o atuador
+usa pause/unpause pelo socket Docker; não grava uma marca de falha no SQL e não chama
+o gerenciador. As operações continuam com o painel fechado. O canal de controle não
+tem botão separado porque compartilha o processo do backend.
 
 A área de operações mostra UUID, fase, recebimentos, recibos e sites pendentes.
 Ela não fornece nomes, caminhos ou download de arquivos de outro usuário.
@@ -106,12 +108,18 @@ shell não substitui automaticamente um valor literal do Compose.
 | `NODE_BOOTSTRAP` | Autorregistro dos nós iniciais; padrão false, true nos três do Compose |
 | `ADMIN_LOGIN`, `ADMIN_PASSWORD` | Provisionamento da conta administrativa, definidos juntos |
 | `ADMIN_PROFILES_FILE` | Caminho de arquivo JSON privado com perfis de administração remota |
-| `ENABLE_DEV_FAULTS` | Habilita simulação acadêmica; padrão false, true no Compose |
+| `FAULT_ACTUATOR_URL`, `FAULT_ACTUATOR_TOKEN` | Origem e credencial interna do atuador; definidos juntos |
 | `SECURE_COOKIES` | Atributo Secure da sessão; false na entrada HTTP local |
 
 Os padrões são parâmetros de controle, não um prazo total exato garantido de detecção:
 sondagens, eleição, transações e atualização do Nginx também consomem tempo.
 O Nginx possui variáveis próprias, descritas em [nginx/README.md](../nginx/README.md).
+
+O serviço `fault-actuator` usa `FAULT_ACTUATOR_MODE=docker`,
+`FAULT_ACTUATOR_TARGETS` com o mapeamento fechado de nó/componente para container e
+`FAULT_ACTUATOR_CONTAINER` para recusar o próprio atuador. O modo `railway-ssh` está
+fechado com HTTP 503 enquanto a prova real de uma segunda sessão SSH após `SIGSTOP`
+não for executada; ele não usa token de API nem Railway CLI e não cai para simulação.
 
 Sem arquivo de perfis, `default` usa o gateway de `DATABASE_URL` e as credenciais S3
 do executor. `ADMIN_PROFILES_FILE` aceita um objeto JSON cujas chaves são nomes de
@@ -129,12 +137,14 @@ Em 15/09/2026, os relatórios do repositório registram:
   reexecutado, persistência MinIO com peers parados e demonstração de HEAD/GET por proxy.
 - Navegador real com cadastro, pastas/subpastas, tipos diferentes, arquivo vazio,
   transferência de 34 MiB, publicação com navegador fechado e download com SHA igual.
-- Retomada após recarga, conteúdo divergente rejeitado, conflito por arquivo e
-  simulações de storage e falha total do gerenciador com restauração dos três nós.
+- Retomada após recarga, conteúdo divergente rejeitado e conflito por arquivo.
+- Falhas reais por pause/unpause de storage, nó completo e backend gerenciador, com
+  retirada automática, sucessão por lease e restauração dos mesmos containers.
 
 Os relatórios são [infraestrutura](infrastructure-verification.md),
 [primeira passagem](../frontend/verification/browser-first-pass.md) e
-[retomada/falhas](../frontend/verification/browser-resume-and-faults.md).
+[retomada](../frontend/verification/browser-resume-and-faults.md). A rodada do atuador
+está em [fault-control-verification.md](fault-control-verification.md).
 Testes com respostas simuladas validam contratos locais, não essas condições distribuídas.
 
 A associação e retirada de um quarto nó passaram, assim como a troca automática
