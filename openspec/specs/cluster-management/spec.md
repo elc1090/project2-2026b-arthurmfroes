@@ -12,15 +12,15 @@ O sistema SHALL representar um nó lógico por backend, banco local e object sto
 - **THEN** ele inicia associação e sincronização sem exigir alteração da lista em todos os backends existentes
 
 ### Requirement: Retirada automática por falha total ou parcial
-O gerenciador SHALL combinar verificações externas e informações locais de saúde. Falha do backend, do acesso ao banco local, do storage local ou expiração da comunicação de controle SHALL desqualificar o nó inteiro. Dentro do prazo configurado de detecção e propagação, ele SHALL ser excluído do tráfego de usuário e do conjunto obrigatório para uploads, sem aprovação manual. Endpoints internos de saúde e recuperação SHALL continuar permitidos.
+O gerenciador SHALL combinar verificações externas e informações locais de saúde. Falha do backend, do acesso ao banco local, do storage local ou expiração da comunicação de controle SHALL desqualificar o nó inteiro. Dentro do prazo configurado de detecção e propagação, ele SHALL ser excluído do tráfego de usuário e do conjunto obrigatório para uploads, sem aprovação manual. A decisão SHALL depender somente das observações e da autoridade compartilhada do cluster; uma ferramenta que provoque a queda SHALL não registrar intenção de exclusão nem fornecer ao gerenciador um caminho antecipado. Endpoints internos de saúde e recuperação SHALL continuar permitidos quando o componente ainda conseguir atendê-los.
 
 #### Scenario: Falha parcial
-- **WHEN** apenas o MinIO do nó 2 deixa de atender
-- **THEN** o gerenciador desqualifica o nó 2 inteiro, registra o motivo e mantém os nós 1 e 3 elegíveis se saudáveis
+- **WHEN** apenas o MinIO do nó 2 deixa de atender sem publicar uma intenção de falha
+- **THEN** o gerenciador descobre a indisponibilidade por sondagem, desqualifica o nó 2 inteiro, registra o motivo e mantém os nós 1 e 3 elegíveis se saudáveis
 
 #### Scenario: Falha integral
-- **WHEN** todos os componentes do nó 2 ficam inacessíveis
-- **THEN** a expiração dos checks produz a mesma exclusão automática mesmo sem heartbeat de despedida
+- **WHEN** todos os componentes do nó 2 ficam inacessíveis sem heartbeat de despedida
+- **THEN** a expiração das verificações produz a exclusão automática e a atualização das rotas
 
 ### Requirement: Decisão compartilhada e proteção contra isolamento
 O sistema SHALL versionar e persistir as mudanças do conjunto elegível com autoridade única por versão. Um nó sem autoridade atual ou sem acesso consistente ao estado compartilhado SHALL rejeitar operações de usuário. A perda de quorum do banco SHALL impedir publicação e reconfiguração, sem formar clusters independentes.
@@ -52,9 +52,8 @@ O sistema SHALL preservar dados e identidade após uma falha temporária. Remoç
 - **THEN** ele segue recuperação sem reinicializar o banco nem destruir os objetos
 
 ### Requirement: Continuidade do gerenciamento
-A queda da instância que executa o gerenciador SHALL permitir que outra instância saudável assuma, sem publicar versões conflitantes.
+A queda da instância que executa o gerenciador SHALL permitir que outra instância saudável assuma, sem publicar versões conflitantes. A instância que cai SHALL não liberar antecipadamente a concessão em resposta a uma ação do painel; a sucessão SHALL respeitar a expiração e a aquisição normal da autoridade.
 
 #### Scenario: Gerenciador cai
-- **WHEN** o gerenciador ativo para durante uma falha de nó
-- **THEN** outro gerenciador assume com nova autoridade e conclui a decisão sem intervenção no painel
-
+- **WHEN** o serviço que contém o gerenciador ativo para sem alterar a concessão compartilhada
+- **THEN** outro gerenciador assume após a autoridade anterior expirar e conclui as decisões pendentes sem intervenção no painel
