@@ -1,4 +1,3 @@
-import type { FaultMode } from "./faults";
 export type AdminNode = {
   id: string;
   node_id: string;
@@ -8,7 +7,7 @@ export type AdminNode = {
   observed_at: string | null;
   transitioned_at: string;
   synced_generation: number;
-  simulation: FaultMode;
+  routed: boolean;
 };
 export type AdminOperation = {
   sites: { id: string; node_id: string; confirmed: boolean }[];
@@ -26,7 +25,38 @@ export type AdminEvent = {
   node_id: string | null;
   kind: string;
   configuration_version: number;
+  manager_term: number;
+  details: EventDetails | null;
   at: string;
+};
+export type FaultComponent = "backend" | "sql" | "storage" | "node";
+export type FaultActionKind = "stop" | "restore";
+export type FaultActionStatus =
+  | "requested"
+  | "running"
+  | "stopped"
+  | "restored"
+  | "failed"
+  | "unknown";
+export type EventDetails = {
+  reason?: string;
+  action?: string;
+  component?: FaultComponent;
+  status?: string;
+};
+export type FaultAction = {
+  id: string;
+  node_id: string;
+  component: FaultComponent;
+  action: FaultActionKind;
+  status: FaultActionStatus;
+  error: string | null;
+  updated_at: string;
+  results?: {
+    component: Exclude<FaultComponent, "node">;
+    status: "stopped" | "restored" | "failed" | "unknown";
+    error: string | null;
+  }[];
 };
 export type AdminView = {
   nodes: AdminNode[];
@@ -38,7 +68,9 @@ export type AdminView = {
   manager_term: number;
   lease_expires_at: string | null;
   observed_at: string;
-  simulation_enabled: boolean;
+  fault_control_available: boolean;
+  fault_control_error: string | null;
+  fault_actions: FaultAction[];
 };
 export const nodeStates: Record<string, string> = {
   joining: "Associando",
@@ -61,6 +93,12 @@ export const componentNames = {
   sql: "Banco local",
   storage: "Object storage",
   control: "Comunicação de controle",
+};
+export const faultComponentNames: Record<FaultComponent, string> = {
+  backend: "Backend",
+  sql: "Banco local",
+  storage: "Object storage",
+  node: "Nó inteiro",
 };
 export function componentState(health: unknown, component: string): string {
   if (!health || typeof health !== "object") return "Sem observação";
@@ -115,7 +153,6 @@ export function reasonLabel(reason: string | null): string {
 }
 export function eventLabel(kind: string): string {
   const kinds: Record<string, string> = {
-    fault_changed: "Simulação de falha alterada",
     node_registered: "Nó registrado",
     node_excluded: "Nó retirado do atendimento",
     node_admitted: "Nó admitido",
@@ -126,4 +163,157 @@ export function eventLabel(kind: string): string {
     node_removed: "Retirada permanente",
   };
   return kinds[kind] || "Evento de controle";
+}
+
+export type IncidentStep = {
+  id: string;
+  label: string;
+  complete: boolean;
+  detail: string;
+};
+
+function actionCompleted(action: FaultAction | undefined): boolean {
+  return !!action && ["stopped", "restored"].includes(action.status);
+}
+
+function componentFailed(node: AdminNode, component: FaultComponent): boolean {
+  if (!node.health || typeof node.health !== "object") return false;
+  const health = node.health as Record<string, unknown>;
+  if (component === "node")
+    return ["backend", "sql", "storage"].some((key) => health[key] === false);
+  return health[component] === false;
+}
+
+export function incidentSteps(
+  node: AdminNode,
+  actions: FaultAction[],
+  publicationGeneration: number,
+): IncidentStep[] {
+  const ordered = actions
+    .filter((item) => item.node_id === node.id || item.node_id === node.node_id)
+    .sort((a, b) => Date.parse(a.updated_at) - Date.parse(b.updated_at));
+  const stop = [...ordered].reverse().find((item) => item.action === "stop");
+  const restore = stop
+    ? ordered.find(
+        (item) =>
+          item.action === "restore" &&
+          Date.parse(item.updated_at) >= Date.parse(stop.updated_at),
+      )
+    : undefined;
+  if (!stop && !restore) return [];
+  const affected = stop?.component || restore?.component || "node";
+  const stopped = stop?.status === "stopped";
+  const restored = actionCompleted(restore);
+  const excluded = node.state === "unavailable" || node.state === "removed";
+  return [
+    {
+      id: "provider-stop",
+      label: "Infraestrutura interrompida",
+      complete: stopped,
+      detail: stop
+        ? `Atuador: ${faultActionStatusLabel(stop.status)}`
+        : "Nenhuma interrupção registrada",
+    },
+    {
+      id: "failure-observed",
+      label: "Falha observada pelo cluster",
+      complete: componentFailed(node, affected),
+      detail: componentFailed(node, affected)
+        ? `${faultComponentNames[affected]} sem saúde`
+        : "Aguardando sondagens",
+    },
+    {
+      id: "node-excluded",
+      label: "Nó retirado da composição elegível",
+      complete: excluded,
+      detail: excluded ? reasonLabel(node.reason) : "Aguardando o gerenciador",
+    },
+    {
+      id: "route-updated",
+      label: "Rota do balanceador atualizada",
+      complete: !node.routed,
+      detail: node.routed ? "O nó ainda recebe tráfego" : "Nó fora da rota",
+    },
+    {
+      id: "provider-restore",
+      label: "Infraestrutura restaurada",
+      complete: restored,
+      detail: restore
+        ? `Atuador: ${faultActionStatusLabel(restore.status)}`
+        : "Restauração ainda não solicitada",
+    },
+    {
+      id: "synchronization",
+      label: "Publicações sincronizadas",
+      complete:
+        restored &&
+        node.state === "ready" &&
+        node.synced_generation >= publicationGeneration,
+      detail:
+        node.state === "syncing"
+          ? "Sincronização em andamento"
+          : restored &&
+              node.state === "ready" &&
+              node.synced_generation >= publicationGeneration
+            ? "Sincronização concluída"
+            : "Aguardando restauração e sincronização",
+    },
+    {
+      id: "readmitted",
+      label: "Nó readmitido",
+      complete: restored && node.state === "ready",
+      detail:
+        restored && node.state === "ready"
+          ? "Nó pronto"
+          : "Aguardando decisão do gerenciador",
+    },
+    {
+      id: "route-restored",
+      label: "Nó voltou à rota",
+      complete: restored && node.routed,
+      detail: restored && node.routed ? "Recebendo tráfego" : "Fora da rota",
+    },
+  ];
+}
+
+export function faultActionStatusLabel(status: FaultActionStatus): string {
+  const labels: Record<FaultActionStatus, string> = {
+    requested: "Solicitada",
+    running: "Em execução",
+    stopped: "Parada confirmada",
+    restored: "Restauração confirmada",
+    failed: "Falhou",
+    unknown: "Resultado desconhecido",
+  };
+  return labels[status];
+}
+
+export function faultResultStatusLabel(
+  status: "stopped" | "restored" | "failed" | "unknown",
+): string {
+  return {
+    stopped: "Parada confirmada",
+    restored: "Restauração confirmada",
+    failed: "Falhou",
+    unknown: "Resultado desconhecido",
+  }[status];
+}
+
+export function safeEventDetail(event: AdminEvent): string | null {
+  if (!event.details) return null;
+  if (event.details.reason) return reasonLabel(event.details.reason);
+  if (event.details.component)
+    return faultComponentNames[event.details.component];
+  if (event.details.status) {
+    const allowed: Record<string, string> = {
+      requested: "Solicitada",
+      running: "Em execução",
+      stopped: "Parada confirmada",
+      restored: "Restauração confirmada",
+      failed: "Falhou",
+      unknown: "Resultado desconhecido",
+    };
+    return allowed[event.details.status] || null;
+  }
+  return null;
 }

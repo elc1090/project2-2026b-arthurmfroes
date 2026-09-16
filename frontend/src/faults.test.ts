@@ -1,49 +1,89 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { APIError } from "./api";
-import { faultError, faultLabel, faultModes, setFault } from "./faults";
-test("falha de qualquer componente ou total usa mesmo endpoint idempotente e restauração none", async () => {
+import {
+  confirmFaultAction,
+  faultConfirmation,
+  faultError,
+  requestFaultAction,
+} from "./faults";
+
+test("ação usa endpoint único com alvo tipado", async () => {
   const original = globalThis.fetch;
-  const requests: { path: string; mode: string }[] = [];
+  const requests: { path: string; body: unknown }[] = [];
   globalThis.fetch = async (path, options) => {
-    assert.equal(options?.method, "POST");
     requests.push({
       path: String(path),
-      mode: JSON.parse(options?.body as string).mode,
+      body: JSON.parse(options?.body as string),
     });
-    return new Response(null, { status: 204 });
+    return Response.json({
+      id: "action-1",
+      node_id: "node/internal",
+      component: "storage",
+      action: "stop",
+      status: "requested",
+      error: null,
+      updated_at: "2026-09-16T12:00:00Z",
+    });
   };
   try {
-    for (const mode of [...Object.keys(faultModes), "none"] as (
-      keyof typeof faultModes | "none"
-    )[])
-      await setFault("manager/id", mode, new AbortController().signal);
-    await setFault("manager/id", "none", new AbortController().signal);
-    assert.equal(requests.length, 7);
-    assert.ok(
-      requests.every((r) => r.path === "/api/admin/nodes/manager%2Fid/fault"),
+    const result = await requestFaultAction(
+      "node/internal",
+      "storage",
+      "stop",
+      new AbortController().signal,
     );
-    assert.deepEqual(
-      requests.slice(-2).map((r) => r.mode),
-      ["none", "none"],
+    assert.equal(result.status, "requested");
+    assert.deepEqual(requests, [
+      {
+        path: "/api/admin/fault-actions",
+        body: {
+          node_id: "node/internal",
+          component: "storage",
+          action: "stop",
+        },
+      },
+    ]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("cancelamento da confirmação não envia requisição", async () => {
+  const original = globalThis.fetch;
+  let fetched = false;
+  globalThis.fetch = async () => {
+    fetched = true;
+    return new Response(null, { status: 500 });
+  };
+  try {
+    const result = await confirmFaultAction(
+      () => false,
+      "id-2",
+      "node-2",
+      "node",
+      "Nó inteiro",
+      "stop",
+      new AbortController().signal,
+    );
+    assert.equal(result, null);
+    assert.equal(fetched, false);
+    assert.match(
+      faultConfirmation("node-2", "Banco local", "sql", "stop"),
+      /quorum/,
+    );
+    assert.doesNotMatch(
+      faultConfirmation("node-2", "Backend", "backend", "stop"),
+      /quorum/,
     );
   } finally {
     globalThis.fetch = original;
   }
 });
-test("solicitação rejeitada ou resposta perdida não vira confirmação de estado", async () => {
-  const original = globalThis.fetch;
-  globalThis.fetch = async () => {
-    throw new TypeError("response lost");
-  };
-  try {
-    await assert.rejects(setFault("id", "total", new AbortController().signal));
-    assert.match(faultError(new TypeError()), /Não foi possível confirmar/);
-    assert.match(faultError(new APIError(404, "disabled")), /indisponível/);
-    assert.match(faultError(new APIError(403, "forbidden")), /permissão/);
-    assert.equal(faultLabel("none"), "Nenhuma falha simulada");
-    assert.equal(faultLabel("total"), "Falha simulada: Nó inteiro");
-  } finally {
-    globalThis.fetch = original;
-  }
+
+test("erros administrativos não exibem payload do provedor", () => {
+  assert.match(faultError(new APIError(403, "secret")), /permissão/);
+  assert.match(faultError(new APIError(404, "secret")), /cadastrado/);
+  assert.match(faultError(new APIError(503, "ssh private key")), /indisponível/);
+  assert.doesNotMatch(faultError(new Error("password=secret")), /secret/);
 });

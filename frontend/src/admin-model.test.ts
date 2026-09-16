@@ -2,10 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   componentState,
+  incidentSteps,
   leaseCurrent,
   observationAge,
   observationLabel,
   reasonLabel,
+  safeEventDetail,
+  type AdminNode,
+  type FaultAction,
   type AdminView,
 } from "./admin-model";
 
@@ -19,6 +23,91 @@ test("observação ausente ou velha não se transforma em saúde atual", () => {
   assert.equal(componentState({ sql: false, storage: true }, "sql"), "Falha");
   assert.equal(componentState({ storage: true }, "storage"), "Saudável");
   assert.equal(componentState({ sql: "true" }, "sql"), "Sem observação");
+});
+
+const node: AdminNode = {
+  id: "id-2",
+  node_id: "node-2",
+  state: "ready",
+  health: { backend: true, sql: true, storage: true, control: true },
+  reason: null,
+  observed_at: "2026-09-16T12:00:00Z",
+  transitioned_at: "2026-09-16T12:00:00Z",
+  synced_generation: 7,
+  routed: true,
+};
+
+function action(overrides: Partial<FaultAction> = {}): FaultAction {
+  return {
+    id: "action-1",
+    node_id: "id-2",
+    component: "storage",
+    action: "stop",
+    status: "stopped",
+    error: null,
+    updated_at: "2026-09-16T12:00:01Z",
+    ...overrides,
+  };
+}
+
+test("sequência não antecipa observação, exclusão nem mudança de rota", () => {
+  const steps = incidentSteps(node, [action()], 7);
+  assert.equal(steps.find((step) => step.id === "provider-stop")?.complete, true);
+  assert.equal(
+    steps.find((step) => step.id === "failure-observed")?.complete,
+    false,
+  );
+  assert.equal(steps.find((step) => step.id === "node-excluded")?.complete, false);
+  assert.equal(steps.find((step) => step.id === "route-updated")?.complete, false);
+});
+
+test("sequência distingue exclusão, restauração, sincronização e readmissão", () => {
+  const failed = {
+    ...node,
+    state: "unavailable",
+    health: { storage: false },
+    routed: false,
+    synced_generation: 5,
+  };
+  const beforeRestore = incidentSteps(failed, [action()], 7);
+  assert.equal(beforeRestore.find((step) => step.id === "node-excluded")?.complete, true);
+  assert.equal(beforeRestore.find((step) => step.id === "provider-restore")?.complete, false);
+
+  const recovered = incidentSteps(
+    node,
+    [
+      action(),
+      action({
+        id: "action-2",
+        action: "restore",
+        status: "restored",
+        updated_at: "2026-09-16T12:01:00Z",
+      }),
+    ],
+    7,
+  );
+  assert.equal(recovered.find((step) => step.id === "synchronization")?.complete, true);
+  assert.equal(recovered.find((step) => step.id === "readmitted")?.complete, true);
+  assert.equal(recovered.find((step) => step.id === "route-restored")?.complete, true);
+});
+
+test("histórico só apresenta detalhes conhecidos e sanitizados", () => {
+  const base = {
+    id: "event-1",
+    node_id: "id-2",
+    kind: "node_excluded",
+    configuration_version: 4,
+    manager_term: 2,
+    at: "2026-09-16T12:00:00Z",
+  };
+  assert.equal(
+    safeEventDetail({ ...base, details: { component: "storage" } }),
+    "Object storage",
+  );
+  assert.equal(
+    safeEventDetail({ ...base, details: { status: "password=secret" } }),
+    null,
+  );
 });
 test("concessão envelhece com tempo decorrido sem depender do relógio civil local", () => {
   const view = {
