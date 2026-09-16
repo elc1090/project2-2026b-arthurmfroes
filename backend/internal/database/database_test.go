@@ -170,7 +170,20 @@ func TestCockroachIntegration(t *testing.T) {
 		if err = Migrate(ctx, existing); err != nil {
 			t.Fatal(err)
 		}
-		var files, tombstones, versions int
+		var files, tombstones, versions, columns, indexes, foreignKeys int
+		if err = existing.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+ WHERE table_schema=$1 AND table_name='file_deletions'
+ AND column_name IN ('file_id','operation_id','owner_id','deleted_at')`, existingSchema).Scan(&columns); err != nil {
+			t.Fatal(err)
+		}
+		if err = existing.QueryRow(ctx, `SELECT count(DISTINCT index_name) FROM information_schema.statistics
+ WHERE table_schema=$1 AND table_name='file_deletions'`, existingSchema).Scan(&indexes); err != nil {
+			t.Fatal(err)
+		}
+		if err = existing.QueryRow(ctx, `SELECT count(*) FROM information_schema.table_constraints
+ WHERE table_schema=$1 AND table_name='file_deletions' AND constraint_type='FOREIGN KEY'`, existingSchema).Scan(&foreignKeys); err != nil {
+			t.Fatal(err)
+		}
 		if err = existing.QueryRow(ctx, "SELECT count(*) FROM files WHERE id=$1", file).Scan(&files); err != nil {
 			t.Fatal(err)
 		}
@@ -180,8 +193,8 @@ func TestCockroachIntegration(t *testing.T) {
 		if err = existing.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&versions); err != nil {
 			t.Fatal(err)
 		}
-		if files != 1 || tombstones != 0 || versions != 4 {
-			t.Fatalf("files=%d tombstones=%d migrations=%d", files, tombstones, versions)
+		if files != 1 || tombstones != 0 || versions != 4 || columns != 4 || indexes < 3 || foreignKeys != 1 {
+			t.Fatalf("files=%d tombstones=%d migrations=%d columns=%d indexes=%d foreign_keys=%d", files, tombstones, versions, columns, indexes, foreignKeys)
 		}
 	})
 	t.Run("server expires abandoned transaction locks", func(t *testing.T) {
