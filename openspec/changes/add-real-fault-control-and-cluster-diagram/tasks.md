@@ -8,7 +8,7 @@
 
 ## 1. Contrato do atuador e projeção administrativa
 
-- [ ] 1.1 [Coordenador, contrato compartilhado] Definir os tipos de alvo, ação, estado e erro sanitizado entre backend, atuador e frontend; verificar serialização, rejeição de valores desconhecidos e ausência de credenciais em testes de contrato.
+- [x] 1.1 [Coordenador, contrato compartilhado] Definir os tipos de alvo, ação, estado e erro sanitizado entre backend, atuador e frontend; verificar serialização, rejeição de valores desconhecidos e ausência de credenciais em testes de contrato.
 - [ ] 1.2 Implementar no atuador o mapeamento explícito de nó e componente e a seleção fechada de modo `docker` ou `railway-ssh`, recusando o próprio atuador, destinos ausentes e configurações cruzadas; verificar inicialização inválida, ausência de fallback e resolução exata em testes unitários.
 - [ ] 1.3 Implementar autenticação interna entre backend e atuador e autorização administrativa na entrada pública; verificar usuário comum, sessão expirada, chamada interna sem credencial e repetição idempotente.
 
