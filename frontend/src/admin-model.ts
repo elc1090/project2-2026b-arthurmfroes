@@ -214,10 +214,16 @@ export function incidentSteps(
       (event.node_id === node.id || event.node_id === node.node_id) &&
       (!stop || Date.parse(event.at) >= Date.parse(stop.updated_at)),
   );
+  const exclusionEvent = nodeEvents.find(
+    (event) => event.kind === "node_excluded",
+  );
+  const failureObserved =
+    componentFailed(node, affected) || exclusionEvent !== undefined;
   const excluded =
     node.state === "unavailable" ||
     node.state === "removed" ||
-    nodeEvents.some((event) => event.kind === "node_excluded");
+    exclusionEvent !== undefined;
+  const routeRemoved = !node.routed || exclusionEvent !== undefined;
   const readmitted =
     restored &&
     (nodeEvents.some((event) => event.kind === "node_admitted") ||
@@ -234,8 +240,8 @@ export function incidentSteps(
     {
       id: "failure-observed",
       label: "Falha observada pelo cluster",
-      complete: componentFailed(node, affected),
-      detail: componentFailed(node, affected)
+      complete: failureObserved,
+      detail: failureObserved
         ? `${faultComponentNames[affected]} sem saúde`
         : "Aguardando sondagens",
     },
@@ -243,13 +249,15 @@ export function incidentSteps(
       id: "node-excluded",
       label: "Nó retirado da composição elegível",
       complete: excluded,
-      detail: excluded ? reasonLabel(node.reason) : "Aguardando o gerenciador",
+      detail: excluded
+        ? reasonLabel(exclusionEvent?.details?.reason || node.reason)
+        : "Aguardando o gerenciador",
     },
     {
       id: "route-updated",
       label: "Rota do balanceador atualizada",
-      complete: !node.routed,
-      detail: node.routed ? "O nó ainda recebe tráfego" : "Nó fora da rota",
+      complete: routeRemoved,
+      detail: routeRemoved ? "Nó retirado da rota" : "O nó ainda recebe tráfego",
     },
     {
       id: "provider-restore",

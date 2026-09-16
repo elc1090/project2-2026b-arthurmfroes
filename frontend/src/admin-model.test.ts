@@ -107,6 +107,8 @@ test("sequência distingue exclusão, restauração, sincronização e readmiss�
     ],
   );
   assert.equal(recovered.find((step) => step.id === "node-excluded")?.complete, true);
+  assert.equal(recovered.find((step) => step.id === "failure-observed")?.complete, true);
+  assert.equal(recovered.find((step) => step.id === "route-updated")?.complete, true);
   assert.equal(recovered.find((step) => step.id === "synchronization")?.complete, true);
   assert.equal(recovered.find((step) => step.id === "readmitted")?.complete, true);
   assert.equal(recovered.find((step) => step.id === "route-restored")?.complete, true);
