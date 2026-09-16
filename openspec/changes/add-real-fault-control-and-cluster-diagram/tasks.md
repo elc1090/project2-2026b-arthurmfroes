@@ -4,7 +4,7 @@
 | --- | --- | --- | --- | --- |
 | Coordenação | `main` | raiz do projeto | contratos, atuador, backend, Compose, integração e evidências | trabalhando |
 | Painel | `implementation/fault-dashboard` | `/tmp/acervo-fault-dashboard` | tarefas 4.1–4.4, somente `frontend/` | preparando |
-| Nginx | `implementation/fault-nginx` | `/tmp/acervo-fault-nginx` | tarefa 5.1, somente `nginx/` | preparando |
+| Nginx | `implementation/fault-nginx` | `/tmp/acervo-fault-nginx` | tarefa 5.1, somente `nginx/` | integrado em `9f832b1`; 7 testes OK |
 
 ## 1. Contrato do atuador e projeção administrativa
 
@@ -34,7 +34,7 @@
 
 ## 5. Balanceador e observabilidade operacional
 
-- [ ] 5.1 Adicionar ao Nginx logging condicional que omite somente `GET` administrativos periódicos com resposta bem-sucedida; verificar em teste de configuração que erros nesses endpoints, mutações e tráfego de arquivos continuam no access log.
+- [x] 5.1 Adicionar ao Nginx logging condicional que omite somente `GET` administrativos periódicos com resposta bem-sucedida; verificar em teste de configuração que erros nesses endpoints, mutações e tráfego de arquivos continuam no access log.
 - [ ] 5.2 Expor ao painel a composição efetivamente roteada ou uma projeção autoritativa equivalente, sem tratar uma ação aceita pelo provedor como rota removida; verificar divergência temporária entre parada, exclusão e reload do Nginx.
 
 ## 6. Implantação e prova distribuída
