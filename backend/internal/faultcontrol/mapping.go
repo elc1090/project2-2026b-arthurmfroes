@@ -80,7 +80,7 @@ func (m *Mapping) Resolve(target Target) ([]ResolvedTarget, error) {
 		}
 		return []ResolvedTarget{resolved}, nil
 	}
-	components := []Component{ComponentBackend, ComponentDatabase, ComponentStorage}
+	components := []Component{ComponentBackend, ComponentSQL, ComponentStorage}
 	resolved := make([]ResolvedTarget, 0, len(components))
 	for _, component := range components {
 		item, ok := m.targets[Target{NodeID: target.NodeID, Component: component}]

@@ -31,7 +31,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/actions":
 		h.submit(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/actions":
-		h.get(w, r.URL.Query().Get("id"))
+		if id := r.URL.Query().Get("id"); id != "" {
+			h.get(w, id)
+		} else {
+			h.writeJSON(w, http.StatusOK, h.service.List())
+		}
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/actions/"):
 		h.get(w, strings.TrimPrefix(r.URL.Path, "/v1/actions/"))
 	default:

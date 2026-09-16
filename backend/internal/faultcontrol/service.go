@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -55,7 +56,7 @@ func (s *Service) Submit(ctx context.Context, request Request) (Action, bool, er
 		s.mu.Unlock()
 		return Action{}, false, fmt.Errorf("create action identifier")
 	}
-	action := Action{ID: id, NodeID: request.NodeID, Component: request.Component, Operation: request.Operation, Status: StateQueued, UpdatedAt: time.Now().UTC(), idempotencyKey: request.IdempotencyKey}
+	action := Action{ID: id, NodeID: request.NodeID, Component: request.Component, Operation: request.Operation, Status: StateRequested, UpdatedAt: time.Now().UTC(), idempotencyKey: request.IdempotencyKey}
 	s.actions[id] = action
 	s.keys[request.IdempotencyKey] = id
 	s.mu.Unlock()
@@ -76,13 +77,29 @@ func (s *Service) Get(id string) (Action, bool) {
 	return cloneAction(action), ok
 }
 
+func (s *Service) List() []Action {
+	s.mu.RLock()
+	actions := make([]Action, 0, len(s.actions))
+	for _, action := range s.actions {
+		actions = append(actions, cloneAction(action))
+	}
+	s.mu.RUnlock()
+	sort.Slice(actions, func(left, right int) bool {
+		if actions[left].UpdatedAt.Equal(actions[right].UpdatedAt) {
+			return actions[left].ID > actions[right].ID
+		}
+		return actions[left].UpdatedAt.After(actions[right].UpdatedAt)
+	})
+	return actions
+}
+
 func (s *Service) execute(ctx context.Context, id string, operation Operation, targets []ResolvedTarget) {
 	now := time.Now().UTC()
 	s.update(id, func(action *Action) { action.Status, action.UpdatedAt = StateRunning, now })
 	results := make([]Result, 0, len(targets))
 	failures := 0
 	for _, target := range targets {
-		result := Result{Component: target.Target.Component, Status: StateSucceeded}
+		result := Result{Component: target.Target.Component, Status: completedState(operation)}
 		if err := s.driver.Apply(ctx, operation, target); err != nil {
 			failures++
 			result.Status = StateFailed
@@ -96,7 +113,7 @@ func (s *Service) execute(ctx context.Context, id string, operation Operation, t
 		action.UpdatedAt = completed
 		switch {
 		case failures == 0:
-			action.Status = StateSucceeded
+			action.Status = completedState(operation)
 		case failures == len(results):
 			action.Status = StateFailed
 			action.Error = "infrastructure action failed"
@@ -105,6 +122,13 @@ func (s *Service) execute(ctx context.Context, id string, operation Operation, t
 			action.Error = "infrastructure action completed partially"
 		}
 	})
+}
+
+func completedState(operation Operation) State {
+	if operation == OperationRestore {
+		return StateRestored
+	}
+	return StateStopped
 }
 
 func (s *Service) update(id string, apply func(*Action)) {

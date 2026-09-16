@@ -42,8 +42,8 @@ func TestServiceRunsAsynchronouslyAndIsIdempotent(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("Submit() = %#v, %v, %v", first, created, err)
 	}
-	if first.Status != StateQueued {
-		t.Fatalf("status = %q, want queued", first.Status)
+	if first.Status != StateRequested {
+		t.Fatalf("status = %q, want requested", first.Status)
 	}
 	second, created, err := service.Submit(context.Background(), request)
 	if err != nil || created || second.ID != first.ID {
@@ -56,13 +56,13 @@ func TestServiceRunsAsynchronouslyAndIsIdempotent(t *testing.T) {
 	}
 	close(driver.block)
 	action := awaitTerminal(t, service, first.ID)
-	if action.Status != StateSucceeded {
-		t.Fatalf("status = %q, want succeeded", action.Status)
+	if action.Status != StateStopped {
+		t.Fatalf("status = %q, want stopped", action.Status)
 	}
 }
 
 func TestServiceReportsPartialNodeActionAndSanitizesDriverError(t *testing.T) {
-	driver := &recordingDriver{failFor: ComponentDatabase, error: errors.New("token=provider-secret")}
+	driver := &recordingDriver{failFor: ComponentSQL, error: errors.New("token=provider-secret")}
 	service := newTestService(t, driver)
 	action, _, err := service.Submit(context.Background(), Request{IdempotencyKey: "partial", NodeID: "node-1", Component: ComponentNode, Operation: OperationStop})
 	if err != nil {
@@ -92,10 +92,16 @@ func TestWholeNodeRestoreUsesReverseOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	action = awaitTerminal(t, service, action.ID)
-	want := []Component{ComponentStorage, ComponentDatabase, ComponentBackend}
+	if action.Status != StateRestored {
+		t.Fatalf("status = %q, want restored", action.Status)
+	}
+	want := []Component{ComponentStorage, ComponentSQL, ComponentBackend}
 	for index, component := range want {
 		if action.Results[index].Component != component {
 			t.Fatalf("result %d = %q, want %q", index, action.Results[index].Component, component)
+		}
+		if action.Results[index].Status != StateRestored {
+			t.Fatalf("result %d status = %q, want restored", index, action.Results[index].Status)
 		}
 	}
 }
@@ -118,7 +124,7 @@ func awaitTerminal(t *testing.T, service *Service, id string) Action {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		action, ok := service.Get(id)
-		if ok && action.Status != StateQueued && action.Status != StateRunning {
+		if ok && action.Status != StateRequested && action.Status != StateRunning {
 			return action
 		}
 		time.Sleep(time.Millisecond)

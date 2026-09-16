@@ -51,6 +51,38 @@ func TestHandlerAcceptsFlatContractAndDoesNotExposeSecrets(t *testing.T) {
 	}
 }
 
+func TestHandlerListsActionsWhenIDIsAbsent(t *testing.T) {
+	handler := newTestHandler(t, &recordingDriver{})
+	for _, key := range []string{"first", "second"} {
+		request := httptest.NewRequest(http.MethodPost, "/v1/actions", strings.NewReader(`{"idempotency_key":"`+key+`","node_id":"node-1","component":"sql","action":"stop"}`))
+		request.Header.Set("Authorization", "Bearer internal-secret")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusAccepted {
+			t.Fatalf("POST status = %d, body = %s", response.Code, response.Body.String())
+		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/actions", nil)
+	request.Header.Set("Authorization", "Bearer internal-secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var actions []Action
+	if err := json.Unmarshal(response.Body.Bytes(), &actions); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 2 {
+		t.Fatalf("listed %d actions, want 2", len(actions))
+	}
+	for _, action := range actions {
+		if action.Component != ComponentSQL {
+			t.Fatalf("component = %q, want sql", action.Component)
+		}
+	}
+}
+
 func TestHandlerMapsTargetConflictAndDriverErrors(t *testing.T) {
 	handler := newTestHandler(t, &recordingDriver{})
 	call := func(body string) *httptest.ResponseRecorder {

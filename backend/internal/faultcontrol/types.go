@@ -18,10 +18,10 @@ const (
 type Component string
 
 const (
-	ComponentBackend  Component = "backend"
-	ComponentDatabase Component = "database"
-	ComponentStorage  Component = "storage"
-	ComponentNode     Component = "node"
+	ComponentBackend Component = "backend"
+	ComponentSQL     Component = "sql"
+	ComponentStorage Component = "storage"
+	ComponentNode    Component = "node"
 )
 
 type Operation string
@@ -34,11 +34,13 @@ const (
 type State string
 
 const (
-	StateQueued    State = "queued"
+	StateRequested State = "requested"
 	StateRunning   State = "running"
-	StateSucceeded State = "succeeded"
-	StatePartial   State = "partial"
+	StateStopped   State = "stopped"
+	StateRestored  State = "restored"
 	StateFailed    State = "failed"
+	StatePartial   State = "partial"
+	StateUnknown   State = "unknown"
 )
 
 var (
@@ -60,7 +62,7 @@ func (t Target) Validate() error {
 		return fmt.Errorf("%w: node_id is required", ErrInvalidRequest)
 	}
 	switch t.Component {
-	case ComponentBackend, ComponentDatabase, ComponentStorage, ComponentNode:
+	case ComponentBackend, ComponentSQL, ComponentStorage, ComponentNode:
 		return nil
 	default:
 		return fmt.Errorf("%w: unknown component", ErrInvalidRequest)

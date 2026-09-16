@@ -17,7 +17,7 @@ func TestMappingResolvesExactTargetsAndWholeNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	components := []Component{resolved[0].Target.Component, resolved[1].Target.Component, resolved[2].Target.Component}
-	if want := []Component{ComponentBackend, ComponentDatabase, ComponentStorage}; !reflect.DeepEqual(components, want) {
+	if want := []Component{ComponentBackend, ComponentSQL, ComponentStorage}; !reflect.DeepEqual(components, want) {
 		t.Fatalf("components = %v, want %v", components, want)
 	}
 	if _, err := mapping.Resolve(Target{NodeID: "node", Component: ComponentBackend}); !errors.Is(err, ErrTargetNotFound) {
@@ -53,7 +53,7 @@ func TestMappingRejectsInvalidAndActuatorTargets(t *testing.T) {
 func testTargets(node string) []TargetConfig {
 	return []TargetConfig{
 		{NodeID: node, Component: ComponentBackend, DockerContainer: node + "-backend"},
-		{NodeID: node, Component: ComponentDatabase, DockerContainer: node + "-database"},
+		{NodeID: node, Component: ComponentSQL, DockerContainer: node + "-sql"},
 		{NodeID: node, Component: ComponentStorage, DockerContainer: node + "-storage"},
 	}
 }
