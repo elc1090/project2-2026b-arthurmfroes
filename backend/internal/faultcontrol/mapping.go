@@ -47,6 +47,9 @@ func NewMapping(mode Mode, configs []TargetConfig, actuatorContainer string) (*M
 			if resolved.RailwayInstance == "" || resolved.DockerContainer != "" {
 				return nil, fmt.Errorf("target %s/%s has incompatible Railway configuration", target.NodeID, target.Component)
 			}
+			if !validSSHIdentifier(resolved.RailwayInstance) {
+				return nil, fmt.Errorf("target %s/%s has an invalid Railway instance ID", target.NodeID, target.Component)
+			}
 		}
 		if _, duplicate := targets[target]; duplicate {
 			return nil, fmt.Errorf("duplicate target %s/%s", target.NodeID, target.Component)
@@ -57,6 +60,20 @@ func NewMapping(mode Mode, configs []TargetConfig, actuatorContainer string) (*M
 		return nil, errors.New("no fault targets are configured")
 	}
 	return &Mapping{mode: mode, targets: targets}, nil
+}
+
+func validSSHIdentifier(value string) bool {
+	if value == "" || strings.HasPrefix(value, "-") {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || character == '-' || character == '_' || character == '.' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func ParseTargetConfigs(raw string) ([]TargetConfig, error) {

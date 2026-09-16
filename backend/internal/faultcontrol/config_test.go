@@ -36,6 +36,39 @@ func TestLoadConfigRequiresSecretAndClosedMode(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRequiresCompleteRailwaySSHSecrets(t *testing.T) {
+	base := map[string]string{
+		"FAULT_ACTUATOR_MODE":         "railway-ssh",
+		"FAULT_ACTUATOR_TOKEN":        "secret",
+		"FAULT_ACTUATOR_TARGETS":      railwayTargetJSON("node-1", "instance-123"),
+		"RAILWAY_SSH_HOST":            "ssh.railway.com",
+		"RAILWAY_SSH_PRIVATE_KEY":     "private-key\nsecond-line",
+		"RAILWAY_SSH_KNOWN_HOSTS":     "ssh.railway.com ssh-ed25519 AAAA",
+		"RAILWAY_SSH_CONNECT_TIMEOUT": "4s",
+		"RAILWAY_SSH_COMMAND_TIMEOUT": "12s",
+	}
+	config, err := LoadConfig(func(name string) string { return base[name] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.RailwayPrivateKey != base["RAILWAY_SSH_PRIVATE_KEY"] || config.RailwayKnownHosts != base["RAILWAY_SSH_KNOWN_HOSTS"] || config.RailwaySSH.Host != "ssh.railway.com" {
+		t.Fatalf("Railway config = %#v", config.RailwaySSH)
+	}
+
+	for _, missing := range []string{"RAILWAY_SSH_HOST", "RAILWAY_SSH_PRIVATE_KEY", "RAILWAY_SSH_KNOWN_HOSTS"} {
+		t.Run("missing "+missing, func(t *testing.T) {
+			env := make(map[string]string, len(base))
+			for name, value := range base {
+				env[name] = value
+			}
+			delete(env, missing)
+			if _, err := LoadConfig(func(name string) string { return env[name] }); err == nil {
+				t.Fatal("expected incomplete Railway configuration error")
+			}
+		})
+	}
+}
+
 func TestLoadConfigAcceptsDockerWithoutProductionFlags(t *testing.T) {
 	env := map[string]string{
 		"FAULT_ACTUATOR_MODE":    "docker",
@@ -53,4 +86,8 @@ func TestLoadConfigAcceptsDockerWithoutProductionFlags(t *testing.T) {
 
 func targetJSON(node, container string) string {
 	return `[{"node_id":"` + strings.ReplaceAll(node, `"`, ``) + `","component":"backend","docker_container":"` + strings.ReplaceAll(container, `"`, ``) + `"}]`
+}
+
+func railwayTargetJSON(node, instance string) string {
+	return `[{"node_id":"` + strings.ReplaceAll(node, `"`, ``) + `","component":"backend","railway_instance":"` + strings.ReplaceAll(instance, `"`, ``) + `"}]`
 }

@@ -50,6 +50,7 @@ var (
 	ErrIdempotencyConflict = errors.New("idempotency key was already used for another action")
 	ErrRailwayUnavailable  = errors.New("railway SSH driver is not configured")
 	ErrDriverUnavailable   = errors.New("infrastructure driver is unavailable")
+	ErrIndeterminate       = errors.New("infrastructure action result is unknown")
 )
 
 type Target struct {

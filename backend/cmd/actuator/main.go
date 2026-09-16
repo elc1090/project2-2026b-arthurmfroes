@@ -31,11 +31,22 @@ func run() error {
 		return err
 	}
 	var driver faultcontrol.Driver
+	var cleanupSSHSecrets func() error
 	switch config.Mode {
 	case faultcontrol.ModeDocker:
 		driver, err = faultcontrol.NewDockerDriver(config.DockerSocket)
 	case faultcontrol.ModeRailwaySSH:
-		driver = faultcontrol.UnavailableDriver{Reason: faultcontrol.ErrRailwayUnavailable}
+		files, cleanup, secretErr := faultcontrol.MaterializeRailwaySSHSecrets(config.RailwayPrivateKey, config.RailwayKnownHosts)
+		if secretErr != nil {
+			return secretErr
+		}
+		cleanupSSHSecrets = cleanup
+		config.RailwaySSH.IdentityFile = files.IdentityFile
+		config.RailwaySSH.KnownHostsFile = files.KnownHostsFile
+		driver, err = faultcontrol.NewRailwaySSHDriver(config.RailwaySSH)
+	}
+	if cleanupSSHSecrets != nil {
+		defer func() { _ = cleanupSSHSecrets() }()
 	}
 	if err != nil {
 		return err

@@ -106,6 +106,22 @@ func TestWholeNodeRestoreUsesReverseOrder(t *testing.T) {
 	}
 }
 
+func TestServicePreservesIndeterminateDriverResult(t *testing.T) {
+	driver := &recordingDriver{failFor: ComponentBackend, error: ErrIndeterminate}
+	service := newTestService(t, driver)
+	action, _, err := service.Submit(context.Background(), Request{IdempotencyKey: "unknown", NodeID: "node-1", Component: ComponentBackend, Operation: OperationStop})
+	if err != nil {
+		t.Fatal(err)
+	}
+	action = awaitTerminal(t, service, action.ID)
+	if action.Status != StateUnknown || len(action.Results) != 1 || action.Results[0].Status != StateUnknown {
+		t.Fatalf("action = %#v", action)
+	}
+	if strings.Contains(action.Error+action.Results[0].Error, "SSH") {
+		t.Fatalf("provider detail leaked: %#v", action)
+	}
+}
+
 func newTestService(t *testing.T, driver Driver) *Service {
 	t.Helper()
 	mapping, err := NewMapping(ModeDocker, testTargets("node-1"), "fault-actuator")

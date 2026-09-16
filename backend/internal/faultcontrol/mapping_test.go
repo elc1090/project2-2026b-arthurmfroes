@@ -50,6 +50,21 @@ func TestMappingRejectsInvalidAndActuatorTargets(t *testing.T) {
 	}
 }
 
+func TestRailwayMappingRejectsUnknownAndUnsafeInstances(t *testing.T) {
+	mapping, err := NewMapping(ModeRailwaySSH, []TargetConfig{{NodeID: "node-1", Component: ComponentBackend, RailwayInstance: "instance-123"}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mapping.Resolve(Target{NodeID: "node-2", Component: ComponentBackend}); !errors.Is(err, ErrTargetNotFound) {
+		t.Fatalf("unknown target error = %v", err)
+	}
+	for _, instance := range []string{"-oProxyCommand=bad", "instance;touch /tmp/bad", "instance@other-host"} {
+		if _, err := NewMapping(ModeRailwaySSH, []TargetConfig{{NodeID: "node-1", Component: ComponentBackend, RailwayInstance: instance}}, ""); err == nil {
+			t.Fatalf("unsafe instance %q was accepted", instance)
+		}
+	}
+}
+
 func testTargets(node string) []TargetConfig {
 	return []TargetConfig{
 		{NodeID: node, Component: ComponentBackend, DockerContainer: node + "-backend"},

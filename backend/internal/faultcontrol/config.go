@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -14,6 +15,9 @@ type Config struct {
 	DockerSocket      string
 	ActuatorContainer string
 	Targets           []TargetConfig
+	RailwaySSH        RailwaySSHConfig
+	RailwayPrivateKey string
+	RailwayKnownHosts string
 }
 
 func LoadConfig(getenv func(string) string) (Config, error) {
@@ -49,12 +53,39 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("DOCKER_HOST must be a unix socket URL")
 		}
 		config.DockerSocket = parsed.Path
-		if strings.TrimSpace(getenv("RAILWAY_SSH_KEY")) != "" {
+		if strings.TrimSpace(getenv("RAILWAY_SSH_KEY")) != "" || strings.TrimSpace(getenv("RAILWAY_SSH_PRIVATE_KEY")) != "" || strings.TrimSpace(getenv("RAILWAY_SSH_KNOWN_HOSTS")) != "" || strings.TrimSpace(getenv("RAILWAY_SSH_HOST")) != "" {
 			return Config{}, fmt.Errorf("Railway SSH configuration is not allowed in docker mode")
 		}
 	case ModeRailwaySSH:
-		if strings.TrimSpace(getenv("DOCKER_HOST")) != "" {
+		if strings.TrimSpace(getenv("DOCKER_HOST")) != "" || config.ActuatorContainer != "" {
 			return Config{}, fmt.Errorf("Docker configuration is not allowed in railway-ssh mode")
+		}
+		config.RailwaySSH = RailwaySSHConfig{
+			Host:           strings.TrimSpace(getenv("RAILWAY_SSH_HOST")),
+			ConnectTimeout: 5 * time.Second,
+			CommandTimeout: 15 * time.Second,
+		}
+		config.RailwayPrivateKey = strings.TrimSpace(getenv("RAILWAY_SSH_PRIVATE_KEY"))
+		config.RailwayKnownHosts = strings.TrimSpace(getenv("RAILWAY_SSH_KNOWN_HOSTS"))
+		if config.RailwaySSH.Host == "" || config.RailwayPrivateKey == "" || config.RailwayKnownHosts == "" {
+			return Config{}, fmt.Errorf("RAILWAY_SSH_HOST, RAILWAY_SSH_PRIVATE_KEY and RAILWAY_SSH_KNOWN_HOSTS are required")
+		}
+		if !validSSHHost(config.RailwaySSH.Host) {
+			return Config{}, fmt.Errorf("RAILWAY_SSH_HOST is invalid")
+		}
+		if value := strings.TrimSpace(getenv("RAILWAY_SSH_CONNECT_TIMEOUT")); value != "" {
+			duration, err := time.ParseDuration(value)
+			if err != nil || duration < time.Second {
+				return Config{}, fmt.Errorf("RAILWAY_SSH_CONNECT_TIMEOUT must be at least one second")
+			}
+			config.RailwaySSH.ConnectTimeout = duration
+		}
+		if value := strings.TrimSpace(getenv("RAILWAY_SSH_COMMAND_TIMEOUT")); value != "" {
+			duration, err := time.ParseDuration(value)
+			if err != nil || duration < time.Second {
+				return Config{}, fmt.Errorf("RAILWAY_SSH_COMMAND_TIMEOUT must be at least one second")
+			}
+			config.RailwaySSH.CommandTimeout = duration
 		}
 	default:
 		return Config{}, fmt.Errorf("FAULT_ACTUATOR_MODE must be docker or railway-ssh")

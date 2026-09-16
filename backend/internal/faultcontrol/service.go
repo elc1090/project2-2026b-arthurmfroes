@@ -98,11 +98,17 @@ func (s *Service) execute(ctx context.Context, id string, operation Operation, t
 	s.update(id, func(action *Action) { action.Status, action.UpdatedAt = StateRunning, now })
 	results := make([]Result, 0, len(targets))
 	failures := 0
+	unknown := 0
 	for _, target := range targets {
 		result := Result{Component: target.Target.Component, Status: completedState(operation)}
 		if err := s.driver.Apply(ctx, operation, target); err != nil {
-			failures++
-			result.Status = StateFailed
+			if errors.Is(err, ErrIndeterminate) {
+				unknown++
+				result.Status = StateUnknown
+			} else {
+				failures++
+				result.Status = StateFailed
+			}
 			result.Error = sanitizeError(err)
 		}
 		results = append(results, result)
@@ -113,7 +119,15 @@ func (s *Service) execute(ctx context.Context, id string, operation Operation, t
 		action.UpdatedAt = completed
 		switch {
 		case failures == 0:
-			action.Status = completedState(operation)
+			if unknown == 0 {
+				action.Status = completedState(operation)
+			} else if unknown == len(results) {
+				action.Status = StateUnknown
+				action.Error = "infrastructure action result is unknown"
+			} else {
+				action.Status = StatePartial
+				action.Error = "infrastructure action completed partially"
+			}
 		case failures == len(results):
 			action.Status = StateFailed
 			action.Error = "infrastructure action failed"
@@ -156,6 +170,9 @@ func sanitizeError(err error) string {
 	}
 	if errors.Is(err, context.Canceled) {
 		return "infrastructure action was canceled"
+	}
+	if errors.Is(err, ErrIndeterminate) {
+		return "infrastructure action result is unknown"
 	}
 	var public interface{ PublicMessage() string }
 	if errors.As(err, &public) {
