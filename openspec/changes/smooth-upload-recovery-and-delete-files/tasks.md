@@ -1,3 +1,12 @@
+## Quadro de execução
+
+| Frente | Branch | Worktree | Responsabilidade | Estado |
+| --- | --- | --- | --- | --- |
+| Coordenação | `main` | raiz do projeto | integração, provas 4.1–4.3 e documentação | preparando frentes |
+| Catálogo/API | `implementation/permanent-file-delete` | `/tmp/acervo-permanent-file-delete` | tarefas 1.1–1.3, incluindo migração compartilhada | em execução |
+| Limpeza física | `implementation/deletion-cleanup-worker` | `/tmp/acervo-deletion-cleanup-worker` | tarefas 2.1–2.4, após contrato da migração | em execução até dependência |
+| Frontend | `implementation/smooth-upload-delete-ui` | `/tmp/acervo-smooth-upload-delete-ui` | tarefas 3.1–3.3, somente `frontend/` | em execução |
+
 ## 1. Contrato persistido e exclusão lógica
 
 - [ ] 1.1 [Coordenador, contrato compartilhado] Adicionar a migração de tombstones com identidade do arquivo, operação, proprietário e horário; verificar aplicação sobre banco vazio e banco com arquivos publicados, incluindo as chaves e índices necessários para idempotência.
