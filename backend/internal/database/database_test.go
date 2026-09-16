@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/url"
@@ -119,6 +120,70 @@ func TestCockroachIntegration(t *testing.T) {
 	if t.Failed() {
 		return
 	}
+	t.Run("migration preserves existing published files", func(t *testing.T) {
+		existingSchema := fmt.Sprintf("existing_%d", time.Now().UnixNano())
+		if _, err := base.Exec(ctx, "CREATE SCHEMA "+pgx.Identifier{existingSchema}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		defer base.Exec(context.Background(), "DROP SCHEMA "+pgx.Identifier{existingSchema}.Sanitize()+" CASCADE")
+		existingURL := *u
+		query := existingURL.Query()
+		query.Set("search_path", existingSchema)
+		existingURL.RawQuery = query.Encode()
+		existing, err := Open(ctx, existingURL.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer existing.Close()
+		if _, err = existing.Exec(ctx, `CREATE TABLE schema_migration_lock (
+ singleton BOOL PRIMARY KEY DEFAULT true CHECK (singleton));
+ CREATE TABLE schema_migrations (
+ version INT8 PRIMARY KEY CHECK (version>0),name STRING NOT NULL UNIQUE,
+ checksum BYTES NOT NULL CHECK (length(checksum)=32),applied_at TIMESTAMPTZ NOT NULL DEFAULT now());
+ INSERT INTO schema_migration_lock(singleton) VALUES(true);`); err != nil {
+			t.Fatal(err)
+		}
+		for index, name := range migrationNames[:3] {
+			content, err := migrationFiles.ReadFile("migrations/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = existing.Exec(ctx, string(content)); err != nil {
+				t.Fatal(err)
+			}
+			checksum := sha256.Sum256(content)
+			if _, err = existing.Exec(ctx, "INSERT INTO schema_migrations(version,name,checksum) VALUES($1,$2,$3)", index+1, name, checksum[:]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var owner, operation, file string
+		if err = existing.QueryRow(ctx, "INSERT INTO users(login,password_hash) VALUES('existing-owner','hash') RETURNING id::STRING").Scan(&owner); err != nil {
+			t.Fatal(err)
+		}
+		if err = existing.QueryRow(ctx, `INSERT INTO upload_operations(owner_id,name,idempotency_key,size_bytes,sha256,manifest,part_count,status,phase)
+ VALUES($1,'existing.bin',gen_random_uuid(),0,$2,'[]',0,'available','complete') RETURNING id::STRING`, owner, make([]byte, 32)).Scan(&operation); err != nil {
+			t.Fatal(err)
+		}
+		if err = existing.QueryRow(ctx, "INSERT INTO files(operation_id,owner_id,name,configuration_version) VALUES($1,$2,'existing.bin',0) RETURNING id::STRING", operation, owner).Scan(&file); err != nil {
+			t.Fatal(err)
+		}
+		if err = Migrate(ctx, existing); err != nil {
+			t.Fatal(err)
+		}
+		var files, tombstones, versions int
+		if err = existing.QueryRow(ctx, "SELECT count(*) FROM files WHERE id=$1", file).Scan(&files); err != nil {
+			t.Fatal(err)
+		}
+		if err = existing.QueryRow(ctx, "SELECT count(*) FROM file_deletions").Scan(&tombstones); err != nil {
+			t.Fatal(err)
+		}
+		if err = existing.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&versions); err != nil {
+			t.Fatal(err)
+		}
+		if files != 1 || tombstones != 0 || versions != 4 {
+			t.Fatalf("files=%d tombstones=%d migrations=%d", files, tombstones, versions)
+		}
+	})
 	t.Run("server expires abandoned transaction locks", func(t *testing.T) {
 		held, err := pool.Begin(ctx)
 		if err != nil {

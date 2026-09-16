@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/admin"
+	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/catalog"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/cluster"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/database"
 	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/storage"
@@ -120,6 +122,41 @@ func TestRealPublicationDownloadAndRecovery(t *testing.T) {
 	}
 	if _, err = services[0].cfg.Cluster.Admit(ctx, authority, target.ID, plan.PublicationGeneration); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRealDeletedOperationIsHiddenFromUserAndAdmin(t *testing.T) {
+	ctx, pool, services, owner, _ := uploadFixture(t)
+	op := createReceived(t, ctx, services, owner, "00000000-0000-0000-0000-000000000012", "deleted.bin")
+	if found, err := services[0].processNext(ctx); err != nil || !found {
+		t.Fatal(found, err)
+	}
+	published, err := services[0].Get(ctx, owner, op.ID)
+	if err != nil || published.FileID == nil {
+		t.Fatal(published, err)
+	}
+	if _, err = (catalog.Service{Pool: pool}).DeleteFile(ctx, owner, *published.FileID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = services[0].Get(ctx, owner, op.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted operation Get error = %v", err)
+	}
+	operations, err := services[0].List(ctx, owner)
+	if err != nil || len(operations) != 0 {
+		t.Fatalf("deleted operation list = %#v, error = %v", operations, err)
+	}
+	// Tombstones are normally created only for available operations. Temporarily
+	// presenting this one as pending proves the admin projection applies its own
+	// exclusion instead of relying on that current invariant.
+	if _, err = pool.Exec(ctx, "UPDATE upload_operations SET status='pending',phase='receiving' WHERE id=$1", op.ID); err != nil {
+		t.Fatal(err)
+	}
+	view, err := (admin.Service{Pool: pool}).View(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Operations) != 0 {
+		t.Fatalf("admin exposed tombstoned operation: %#v", view.Operations)
 	}
 }
 func TestRealWorkerFencesAndIntegrity(t *testing.T) {
