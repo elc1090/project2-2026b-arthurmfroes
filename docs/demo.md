@@ -117,9 +117,11 @@ O Nginx possui variáveis próprias, descritas em [nginx/README.md](../nginx/REA
 
 O serviço `fault-actuator` usa `FAULT_ACTUATOR_MODE=docker`,
 `FAULT_ACTUATOR_TARGETS` com o mapeamento fechado de nó/componente para container e
-`FAULT_ACTUATOR_CONTAINER` para recusar o próprio atuador. O modo `railway-ssh` está
-fechado com HTTP 503 enquanto a prova real de uma segunda sessão SSH após `SIGSTOP`
-não for executada; ele não usa token de API nem Railway CLI e não cai para simulação.
+`FAULT_ACTUATOR_CONTAINER` para recusar o próprio atuador. No Railway, o mesmo
+contrato usa OpenSSH, Instance IDs cadastrados e o helper fixo das imagens hospedadas.
+A [configuração Railway](railway-deployment.md) descreve a topologia, os segredos e
+o bootstrap estrito de host keys. O runtime não usa token de API, GraphQL ou Railway
+CLI e não cai para simulação.
 
 Sem arquivo de perfis, `default` usa o gateway de `DATABASE_URL` e as credenciais S3
 do executor. `ADMIN_PROFILES_FILE` aceita um objeto JSON cujas chaves são nomes de

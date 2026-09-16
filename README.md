@@ -109,6 +109,7 @@ Testes dependentes de SQL, S3 ou Docker precisam de seu ambiente de integração
 um teste pulado não comprova comportamento distribuído.
 
 As evidências registradas incluem [bootstrap e persistência MinIO](docs/infrastructure-verification.md),
+[prova e configuração Railway](docs/railway-deployment.md),
 [a primeira passagem pelo navegador](frontend/verification/browser-first-pass.md)
 e [publicação e retomada](frontend/verification/browser-resume-and-faults.md).
 A segunda passagem verificou download de 34 MiB com SHA-256 idêntico, rejeição de
