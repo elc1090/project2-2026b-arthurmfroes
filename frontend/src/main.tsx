@@ -3,23 +3,15 @@ import { createRoot } from "react-dom/client";
 import { api, APIError, message } from "./api";
 import {
   matchReselections,
+  transferLabels,
   UploadQueue,
-  type State,
   type Transfer,
 } from "./queue";
 import type { Folder, Listing, User } from "./types";
+import { confirmFileDeletion } from "./file-actions";
 import "./style.css";
 import { Admin } from "./Admin";
-const labels: Record<State, string> = {
-  preparing: "Preparando arquivo",
-  sending: "Enviando",
-  confirming: "Confirmando armazenamento",
-  complete: "Concluído",
-  waiting: "Aguardando conexão ou verificação",
-  reselect: "Selecione o arquivo novamente",
-  error: "Não foi possível continuar",
-  cancelled: "Cancelado",
-};
+import { FileActions } from "./FileActions";
 export function bytes(n: number) {
   if (n === 0) return "0 B";
   const i = Math.min(4, Math.floor(Math.log(n) / Math.log(1024)));
@@ -154,6 +146,7 @@ function Drive({ user, exit }: { user: User; exit: () => void }) {
     [error, setError] = useState(""),
     [refresh, setRefresh] = useState(0),
     [pending, setPending] = useState(true),
+    [deletingID, setDeletingID] = useState<string | null>(null),
     [folderDialog, setFolderDialog] = useState(false),
     [admin, setAdmin] = useState(false);
   const [, redraw] = useState(0);
@@ -162,6 +155,7 @@ function Drive({ user, exit }: { user: User; exit: () => void }) {
   const selected = useRef<Transfer | null>(null);
   const queueRef = useRef<UploadQueue | null>(null);
   const owner = useRef(user.id);
+  const deletion = useRef<AbortController | null>(null);
   if (!queueRef.current)
     queueRef.current = new UploadQueue(
       owner.current,
@@ -172,7 +166,10 @@ function Drive({ user, exit }: { user: User; exit: () => void }) {
   const folderID = path.at(-1)?.id || null;
   useEffect(() => {
     queue.restore().catch((e) => setError(message(e)));
-    return () => queue.dispose();
+    return () => {
+      deletion.current?.abort();
+      queue.dispose();
+    };
   }, [queue]);
   const completed = queue.rows.filter((r) => r.state === "complete").length;
   useEffect(() => {
@@ -197,6 +194,37 @@ function Drive({ user, exit }: { user: User; exit: () => void }) {
       });
     return () => abort.abort();
   }, [folderID, refresh, completed]);
+  async function removeFile(file: Listing["files"][number]) {
+    if (deletion.current) return;
+    const controller = new AbortController();
+    try {
+      const confirmed = await confirmFileDeletion(
+        file,
+        window.confirm,
+        controller.signal,
+        () => {
+          deletion.current = controller;
+          setDeletingID(file.id);
+          setError("");
+        },
+      );
+      if (!confirmed) return;
+      setListing((current) => ({
+        ...current,
+        files: current.files.filter((item) => item.id !== file.id),
+      }));
+      queue.removeCompletedFile(file.id);
+      setRefresh((value) => value + 1);
+    } catch (cause) {
+      if (cause instanceof APIError && cause.status === 401) exit();
+      else setError(`Não foi possível excluir o arquivo. ${message(cause)}`);
+    } finally {
+      if (deletion.current === controller) {
+        deletion.current = null;
+        setDeletingID(null);
+      }
+    }
+  }
   return (
     <div className="shell">
       <aside>
@@ -344,13 +372,12 @@ function Drive({ user, exit }: { user: User; exit: () => void }) {
                           "pt-BR",
                         )}
                       </span>
-                      <a
-                        href={`/api/files/${encodeURIComponent(file.id)}/download`}
-                        download={file.name}
-                        aria-label={`Baixar ${file.name}`}
-                      >
-                        ↓ Baixar
-                      </a>
+                      <FileActions
+                        file={file}
+                        deleting={deletingID === file.id}
+                        deletionPending={deletingID !== null}
+                        onDelete={() => void removeFile(file)}
+                      />
                     </div>
                   ))}
                 </>
@@ -383,8 +410,8 @@ function Drive({ user, exit }: { user: User; exit: () => void }) {
                   <span>{bytes(row.size)}</span>
                 </div>
                 <div className={`status ${row.state}`}>
-                  <span>{labels[row.state]}</span>
-                  {["preparing", "sending", "confirming"].includes(
+                  <span>{transferLabels[row.state]}</span>
+                  {["preparing", "sending", "recovering", "confirming"].includes(
                     row.state,
                   ) && <span>{Math.round(row.progress * 100)}%</span>}
                 </div>

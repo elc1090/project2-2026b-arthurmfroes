@@ -308,7 +308,7 @@ aside nav button {
 .list-head,
 .file-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px 130px 90px;
+  grid-template-columns: minmax(0, 1fr) 110px 130px 150px;
   align-items: center;
   gap: 14px;
 }
@@ -326,6 +326,23 @@ aside nav button {
 }
 .file-row:hover {
   background: #f0f3ec;
+}
+.file-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.delete-file {
+  padding: 5px 7px;
+  border: 0;
+  color: #a34634;
+  background: transparent;
+  font-size: 11px;
+}
+.delete-file:hover,
+.delete-file:focus-visible {
+  background: #fff1e9;
 }
 .file-name {
   display: flex;
@@ -597,6 +614,14 @@ aside nav button {
   }
   .file-row a {
     font-size: 11px;
+  }
+  .file-actions {
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .delete-file {
+    padding: 2px;
   }
   .transfers {
     padding: 16px;
