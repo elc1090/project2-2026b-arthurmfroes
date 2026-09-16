@@ -82,8 +82,9 @@ usam a transferência nativa do navegador, sem montar o arquivo inteiro em JavaS
 
 Arquivos publicados oferecem `Excluir`. Após a confirmação, a decisão permanente é
 gravada antes da resposta: o arquivo some da listagem, novos downloads são bloqueados
-e o mesmo nome pode ser usado de novo. A remoção das versões físicas ocorre em segundo
-plano por storage. Se um site estiver indisponível, o recibo fica pendente para nova
+e o mesmo nome pode ser usado de novo. A remoção enumera em segundo plano todas as
+versões da chave final exata em cada storage, inclusive versões órfãs sem recibo SQL.
+Se um site estiver indisponível, o recibo fica pendente para nova
 tentativa e essa geração não é readmitida até a limpeza; um download que já abriu sua
 versão antes da exclusão pode terminar.
 

@@ -45,7 +45,8 @@ administrativo é provisionado pelo backend, não escolhido no cadastro.
    mesmo nome para conferir que o espaço do diretório foi liberado.
 
 A confirmação de exclusão registra primeiro um tombstone e remove o catálogo ativo.
-Ela não espera todos os storages: o worker apaga depois cada chave e versão exatas.
+Ela não espera todos os storages: o worker enumera a chave final exata e apaga depois
+todas as suas versões, inclusive versões órfãs que ficaram sem recibo SQL.
 Um storage fora do ar conserva seu recibo pendente, e o cluster impede a readmissão
 daquela geração até concluir a limpeza. Por isso o desaparecimento imediato na tela
 comprova a exclusão lógica; a limpeza física precisa ser observada após o site voltar.
