@@ -16,8 +16,8 @@
 ## 2. Adaptadores de infraestrutura
 
 - [x] 2.1 [Depende de 1.1 e 1.2] Implementar o adaptador Docker Compose para congelar e retomar backend, CockroachDB, MinIO e nó inteiro sem remover volumes; verificar por integração que os processos deixam de responder e retornam com a mesma identidade persistida.
-- [ ] 2.2 [Depende de 1.1 e 1.2] Fazer primeiro uma prova descartável de SSH no Railway que envia `SIGSTOP` ao PID 1, abre uma segunda sessão e envia `SIGCONT`; registrar o resultado real e interromper esta frente sem criar simulação substituta se a segunda sessão não for aceita.
-- [ ] 2.3 [Depende de 2.2] Implementar o adaptador Railway com cliente OpenSSH, chave dedicada, IDs de instância cadastrados e comandos fixos `kill -STOP 1` e `kill -CONT 1`; verificar alvo desconhecido, host key, timeout, conexão interrompida, confirmação posterior e ausência de interpolação de entrada do cliente.
+- [x] 2.2 [Depende de 1.1 e 1.2] Fazer primeiro uma prova descartável de SSH no Railway com init mínimo e workload em grupo filho: enviar `SIGSTOP` ao grupo, abrir uma segunda sessão e enviar `SIGCONT`; registrar indisponibilidade e recuperação reais e interromper esta frente sem criar simulação substituta se a segunda sessão não for aceita.
+- [ ] 2.3 [Depende de 2.2] Implementar o adaptador Railway com cliente OpenSSH, chave dedicada, IDs de instância cadastrados e comandos fixos do helper para `stop`, `restore` e `status`; verificar alvo desconhecido, topologia inesperada, host key, timeout, conexão interrompida, confirmação posterior e ausência de interpolação de entrada do cliente.
 - [x] 2.4 Implementar operações compostas de nó inteiro com resultado individual por componente e restauração parcial segura; verificar falha intermediária, repetição e relatório fiel dos alvos congelados.
 
 ## 3. Detecção sem sinal cooperativo
@@ -41,7 +41,7 @@
 ## 6. Implantação e prova distribuída
 
 - [x] 6.1 Adicionar o atuador ao Compose em modo Docker, montar o socket somente nesse serviço e documentar o mapeamento local; verificar que `./scripts/dev.sh` continua iniciando sozinho a topologia completa, que os três nós podem ser congelados e retomados e que os volumes são preservados.
-- [ ] 6.2 Documentar e validar a topologia Railway com serviços separados, IDs de instância configurados, chave SSH dedicada no atuador e host keys verificadas; confirmar que nenhum token de API ou Railway CLI é necessário e verificar configuração incompleta sem atingir um serviço real.
+- [ ] 6.2 Documentar e validar a topologia Railway com serviços separados, Dockerfiles com init/helper, IDs de instância configurados, chave SSH dedicada no atuador e `known_hosts` inicializado em sessão controlada; confirmar que nenhum token de API ou Railway CLI existe no runtime e verificar configuração incompleta sem atingir um serviço real.
 - [x] 6.3 [Coordenador, depende de 3.3, 4.3, 5.2 e 6.1] Executar a prova local com upload em andamento, parada real de um storage, continuidade nos sobreviventes, restauração, sincronização e readmissão; registrar comandos, tempos observados e checksums.
 - [x] 6.4 Executar a prova local parando o backend gerenciador e depois um nó inteiro, confirmando sucessão por expiração do lease, mudança de rotas e recuperação sem marca cooperativa; registrar evidências e qualquer limite do ambiente.
 - [x] 6.5 Atualizar README e roteiro da demonstração para distinguir ação do provedor, observação do cluster e decisão automática; verificar que nenhuma instrução ainda descreve `node_faults` ou `ENABLE_DEV_FAULTS` como mecanismo da demonstração.

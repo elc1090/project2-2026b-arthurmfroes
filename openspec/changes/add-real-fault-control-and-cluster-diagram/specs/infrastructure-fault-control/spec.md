@@ -27,11 +27,11 @@ O atuador SHALL permitir interromper separadamente o backend, o banco local ou o
 - **THEN** backend, banco e storage desse nó deixam de atender sem executar retirada administrativa ou apagar seus dados persistentes
 
 ### Requirement: Adaptadores de infraestrutura configuráveis
-O atuador SHALL resolver cada nó e componente para alvos configurados no servidor, sem inferir destinos ou comandos a partir de dados fornecidos pelo navegador. Um modo de ambiente explícito SHALL selecionar exatamente um adaptador: Docker para a execução local ou SSH para a implantação Railway. O ambiente local SHALL congelar e retomar containers Docker Compose. A implantação hospedada SHALL abrir SSH somente para instâncias Railway previamente cadastradas e enviar sinais fixos ao processo principal. Modo desconhecido, configuração incompatível, falha de conexão ou mapeamento ausente SHALL falhar fechado sem alterar a composição do cluster e sem recorrer à antiga simulação cooperativa.
+O atuador SHALL resolver cada nó e componente para alvos configurados no servidor, sem inferir destinos ou comandos a partir de dados fornecidos pelo navegador. Um modo de ambiente explícito SHALL selecionar exatamente um adaptador: Docker para a execução local ou SSH para a implantação Railway. O ambiente local SHALL congelar e retomar containers Docker Compose. A implantação hospedada SHALL abrir SSH somente para instâncias Railway previamente cadastradas e invocar um helper fixo que sinaliza o grupo do único filho direto de um init mínimo. O helper SHALL validar a topologia por `/proc`, sem assumir PID numérico nem selecionar processos por nome. Modo desconhecido, configuração incompatível, falha de conexão, topologia inesperada ou mapeamento ausente SHALL falhar fechado sem alterar a composição do cluster e sem recorrer à antiga simulação cooperativa.
 
 #### Scenario: Serviço Railway congelado
 - **WHEN** o nó está mapeado para serviços Railway e o administrador confirma uma falha
-- **THEN** o atuador acessa por SSH a instância cadastrada, envia `SIGSTOP` ao PID 1 e registra o resultado sanitizado do comando
+- **THEN** o atuador acessa por SSH a instância cadastrada, invoca o helper fixo para enviar `SIGSTOP` ao grupo do workload e registra o resultado sanitizado do comando
 
 #### Scenario: Comando fornecido pelo cliente
 - **WHEN** uma solicitação inclui um hostname, identificador de instância ou comando arbitrário
@@ -46,11 +46,18 @@ O atuador SHALL resolver cada nó e componente para alvos configurados no servid
 - **THEN** os controles de falha ficam indisponíveis com diagnóstico explícito e nenhuma simulação alternativa é ativada
 
 ### Requirement: Restauração preserva identidade e dados
-Restaurar uma falha SHALL retomar o mesmo processo interrompido com sua memória, volumes e configuração persistentes. O atuador SHALL enviar `SIGCONT` ao PID 1 no Railway e descongelar o container correspondente no Compose. O atuador SHALL limitar-se a recuperar a infraestrutura; admissão, sincronização e retorno ao tráfego SHALL permanecer decisões automáticas do cluster.
+Restaurar uma falha SHALL retomar os mesmos processos interrompidos com sua memória, volumes e configuração persistentes. O atuador SHALL invocar o helper fixo para enviar `SIGCONT` ao mesmo grupo do workload no Railway e descongelar o container correspondente no Compose. O atuador SHALL limitar-se a recuperar a infraestrutura; admissão, sincronização e retorno ao tráfego SHALL permanecer decisões automáticas do cluster.
 
 #### Scenario: Restauração no Railway
 - **WHEN** o administrador restaura uma instância anteriormente congelada
-- **THEN** o atuador envia `SIGCONT` ao mesmo PID 1 e não força sua inclusão no conjunto elegível
+- **THEN** o atuador envia `SIGCONT` ao mesmo grupo do workload e não força sua inclusão no conjunto elegível
+
+### Requirement: Verificação estrita do gateway SSH
+O atuador SHALL usar uma chave de usuário dedicada e `StrictHostKeyChecking=yes` contra um `known_hosts` fornecido como segredo. Como o Railway não publica fingerprints autoritativos estáveis, o conjunto inicial SHALL ser capturado numa sessão administrativa controlada e toda chave nova SHALL exigir atualização explícita. O runtime SHALL não instalar Railway CLI, aceitar host key nova automaticamente nem desabilitar a verificação.
+
+#### Scenario: Gateway apresenta chave desconhecida
+- **WHEN** `ssh.railway.com` apresenta uma chave ausente do `known_hosts`
+- **THEN** a ação falha fechada, o atuador registra erro sanitizado e nenhum comando remoto é executado
 
 #### Scenario: Retorno com publicações ausentes
 - **WHEN** o serviço retorna depois de arquivos terem sido publicados nos sobreviventes
