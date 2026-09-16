@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Slots, UploadQueue } from "./queue";
+import {
+  missingParts,
+  reconcileTransfer,
+  recordUploadProgress,
+  Slots,
+  transferLabels,
+  UploadQueue,
+  type Transfer,
+} from "./queue";
 import type { Operation } from "./types";
 test("concorrência global dois slots e erro isolado libera lugar na fila", async () => {
   const slots = new Slots(2);
@@ -775,4 +783,121 @@ test("restore encerra sessão no 401 e expõe 4xx ou JSON inválido sem retry", 
       } finally { queue.dispose(); }
     }
   } finally { globalThis.fetch = original; }
+});
+
+test("progresso visual não regride quando uma parte disponível se perde", () => {
+  const part = (index: number, available: boolean) => ({
+    index,
+    offset: index * 25,
+    size: 25,
+    sha256: `hash-${index}`,
+    available,
+    availability: available ? ("available" as const) : ("missing" as const),
+  });
+  const operation = (available: boolean[]): Operation => ({
+    id: "recovering",
+    idempotency_key: "key",
+    folder_id: null,
+    name: "large.bin",
+    size: 100,
+    sha256: "hash",
+    status: "pending",
+    phase: "receiving",
+    parts: available.map((value, index) => part(index, value)),
+  });
+  const row: Transfer = {
+    key: "key",
+    name: "large.bin",
+    size: 100,
+    folderID: null,
+    state: "sending",
+    progress: 0,
+    file: new File([new Uint8Array(100)], "large.bin"),
+    abort: new AbortController(),
+  };
+
+  reconcileTransfer(row, operation([true, true, true, false]));
+  assert.equal(row.progress, 0.75);
+  assert.equal(row.authoritativeProgress, 0.75);
+  assert.deepEqual(missingParts(row.operation!).map((item) => item.index), [3]);
+
+  reconcileTransfer(row, operation([true, false, true, false]));
+  assert.equal(row.authoritativeProgress, 0.5);
+  assert.equal(row.progress, 0.75);
+  assert.equal(row.state, "recovering");
+  assert.equal(
+    transferLabels[row.state],
+    "Recuperando partes após falha de um node",
+  );
+  assert.deepEqual(missingParts(row.operation!).map((item) => item.index), [1, 3]);
+
+  recordUploadProgress(row, 0.7);
+  assert.equal(row.progress, 0.75);
+  assert.equal(row.state, "recovering");
+  recordUploadProgress(row, 0.75);
+  assert.equal(row.progress, 0.75);
+  assert.equal(row.state, "sending");
+
+  reconcileTransfer(row, {
+    ...operation([true, true, true, true]),
+    phase: "confirming",
+  });
+  assert.equal(row.state, "confirming");
+  assert.equal(row.progress, 1);
+  reconcileTransfer(row, {
+    ...operation([true, true, true, true]),
+    status: "available",
+    phase: "complete",
+    file_id: "file-1",
+  });
+  assert.equal(row.state, "complete");
+});
+
+test("exclusão retira somente a transferência concluída e reload respeita fila vazia", async () => {
+  memoryStorage();
+  const original = globalThis.fetch;
+  let changes = 0;
+  const complete = pendingOperation({
+    id: "published",
+    status: "available",
+    phase: "complete",
+    file_id: "file-1",
+  });
+  const queue = new UploadQueue("owner", () => changes++, () => {});
+  queue.rows.push({
+    key: "published",
+    name: "published.bin",
+    size: 1,
+    folderID: null,
+    state: "complete",
+    progress: 1,
+    operation: complete,
+    abort: new AbortController(),
+  });
+  queue.rows.push({
+    key: "pending",
+    name: "pending.bin",
+    size: 1,
+    folderID: null,
+    state: "sending",
+    progress: 0,
+    operation: pendingOperation({ id: "pending", file_id: "file-1" }),
+    abort: new AbortController(),
+  });
+  try {
+    queue.removeCompletedFile("file-1");
+    assert.deepEqual(queue.rows.map((row) => row.key), ["pending"]);
+    assert.equal(changes, 1);
+    queue.dispose();
+
+    globalThis.fetch = async () =>
+      Response.json({ operations: [] });
+    const reloaded = new UploadQueue("owner", () => {}, () => {});
+    await reloaded.restore();
+    assert.deepEqual(reloaded.rows, []);
+    reloaded.dispose();
+  } finally {
+    queue.dispose();
+    globalThis.fetch = original;
+  }
 });

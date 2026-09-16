@@ -4,12 +4,24 @@ import type { Manifest, Operation } from "./types";
 export type State =
   | "preparing"
   | "sending"
+  | "recovering"
   | "confirming"
   | "complete"
   | "waiting"
   | "reselect"
   | "error"
   | "cancelled";
+export const transferLabels: Record<State, string> = {
+  preparing: "Preparando arquivo",
+  sending: "Enviando",
+  recovering: "Recuperando partes após falha de um node",
+  confirming: "Confirmando armazenamento",
+  complete: "Concluído",
+  waiting: "Aguardando conexão ou verificação",
+  reselect: "Selecione o arquivo novamente",
+  error: "Não foi possível continuar",
+  cancelled: "Cancelado",
+};
 export type Transfer = {
   key: string;
   name: string;
@@ -17,6 +29,9 @@ export type Transfer = {
   folderID: string | null;
   state: State;
   progress: number;
+  authoritativeProgress?: number;
+  progressHighWater?: number;
+  recoveryTarget?: number;
   error?: string;
   operation?: Operation;
   file?: File;
@@ -43,6 +58,90 @@ export class Slots {
     }
   }
 }
+
+export function availableProgress(op: Operation): number {
+  if (op.status === "available" || op.size === 0) return 1;
+  return (
+    op.parts.reduce((bytes, part) => bytes + (part.available ? part.size : 0), 0) /
+    op.size
+  );
+}
+
+export function missingParts(op: Operation) {
+  return op.parts.filter((part) => !part.available);
+}
+
+export function recordUploadProgress(row: Transfer, progress: number) {
+  row.progressHighWater = Math.max(row.progressHighWater || 0, progress);
+  row.progress = row.progressHighWater;
+  if (
+    row.state === "recovering" &&
+    row.recoveryTarget !== undefined &&
+    progress >= row.recoveryTarget
+  ) {
+    row.state = "sending";
+    row.recoveryTarget = undefined;
+  }
+}
+
+export function reconcileTransfer(row: Transfer, op: Operation) {
+  row.error = undefined;
+  row.operation = op;
+  const authoritative = availableProgress(op);
+  const previousHighWater = row.progressHighWater ?? row.progress;
+  row.authoritativeProgress = authoritative;
+  row.progressHighWater = Math.max(previousHighWater, authoritative);
+  row.progress = row.progressHighWater;
+  const unavailable = missingParts(op);
+  const recovering =
+    op.status === "pending" &&
+    !op.parts.some((part) => part.availability === "unknown") &&
+    !!row.file &&
+    unavailable.length > 0 &&
+    authoritative < previousHighWater;
+  if (recovering)
+    row.recoveryTarget = Math.max(
+      row.recoveryTarget || 0,
+      previousHighWater,
+    );
+  if (
+    row.recoveryTarget !== undefined &&
+    authoritative >= row.recoveryTarget
+  )
+    row.recoveryTarget = undefined;
+
+  row.state =
+    op.status === "available"
+      ? "complete"
+      : op.status === "cancelled"
+        ? "cancelled"
+        : op.parts.some((part) => part.availability === "unknown")
+          ? "waiting"
+          : op.parts.every((part) => part.available)
+            ? "confirming"
+            : row.file
+              ? row.recoveryTarget !== undefined &&
+                authoritative < row.recoveryTarget
+                ? "recovering"
+                : "sending"
+              : "reselect";
+  if (
+    op.status === "pending" &&
+    op.error_code &&
+    op.error_code !== "awaiting_parts"
+  ) {
+    const detail = operationError(op.error_code);
+    row.error = detail.message;
+    row.state = detail.transient ? "waiting" : "error";
+  }
+  if (["confirming", "complete", "cancelled"].includes(row.state))
+    row.recoveryTarget = undefined;
+  if (row.state === "complete" || row.state === "cancelled") {
+    row.file = undefined;
+    row.manifest = undefined;
+  }
+}
+
 export class UploadQueue {
   rows: Transfer[] = [];
   private slots = new Slots(2);
@@ -187,6 +286,7 @@ export class UploadQueue {
   }
   private async prepare(row: Transfer, file: File) {
     const signal = row.abort.signal;
+    const uploadHighWater = row.progressHighWater || 0;
     row.state = "preparing";
     row.error = undefined;
     row.progress = 0;
@@ -240,7 +340,8 @@ export class UploadQueue {
         );
       row.file = file;
       row.manifest = manifest;
-      row.progress = 0;
+      row.progress = uploadHighWater;
+      row.progressHighWater = uploadHighWater;
       await this.run(row);
     } catch (error) {
       if (!signal.aborted) {
@@ -252,40 +353,7 @@ export class UploadQueue {
   }
   private apply(row: Transfer, op: Operation) {
     if (this.disposed) return;
-    row.error = undefined;
-    row.operation = op;
-    row.progress =
-      op.status === "available"
-        ? 1
-        : op.size
-          ? op.parts.reduce((n, p) => n + (p.available ? p.size : 0), 0) /
-            op.size
-          : 1;
-    row.state =
-      op.status === "available"
-        ? "complete"
-        : op.status === "cancelled"
-          ? "cancelled"
-          : op.parts.some((p) => p.availability === "unknown")
-            ? "waiting"
-            : op.parts.every((p) => p.available)
-              ? "confirming"
-              : row.file
-                ? "sending"
-                : "reselect";
-    if (
-      op.status === "pending" &&
-      op.error_code &&
-      op.error_code !== "awaiting_parts"
-    ) {
-      const detail = operationError(op.error_code);
-      row.error = detail.message;
-      row.state = detail.transient ? "waiting" : "error";
-    }
-    if (row.state === "complete" || row.state === "cancelled") {
-      row.file = undefined;
-      row.manifest = undefined;
-    }
+    reconcileTransfer(row, op);
     this.emit();
   }
   private async pause(signal: AbortSignal, ms: number) {
@@ -348,7 +416,7 @@ export class UploadQueue {
             await this.pause(row.abort.signal, 2000);
             continue;
           }
-          const missing = op.parts.filter((p) => !p.available);
+          const missing = missingParts(op);
           if (missing.length && row.file) {
             // Reserve up to two parts, with one semaphore shared by every file.
             const confirmed = op.parts.reduce(
@@ -367,10 +435,12 @@ export class UploadQueue {
                     signal,
                     (bytes) => {
                       progress.set(part.index, bytes);
-                      row.progress =
+                      recordUploadProgress(
+                        row,
                         (confirmed +
                           [...progress.values()].reduce((a, b) => a + b, 0)) /
-                        op.size;
+                          op.size,
+                      );
                       this.emit();
                     },
                   );
@@ -428,6 +498,17 @@ export class UploadQueue {
       row,
       !row.operation && !row.manifest ? row.file : undefined,
     );
+  }
+  removeCompletedFile(fileID: string) {
+    if (this.disposed) return;
+    const before = this.rows.length;
+    this.rows = this.rows.filter(
+      (row) =>
+        !(
+          row.state === "complete" && row.operation?.file_id === fileID
+        ),
+    );
+    if (this.rows.length !== before) this.emit();
   }
   async cancel(row: Transfer) {
     if (
