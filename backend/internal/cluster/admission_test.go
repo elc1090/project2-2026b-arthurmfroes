@@ -138,6 +138,67 @@ func TestCockroachAdmission(t *testing.T) {
 	}
 }
 
+func TestAdmissionWaitsForCurrentGenerationDeletionReceipt(t *testing.T) {
+	pool, ctx := integrationPool(t)
+	store := New(pool)
+	manager, err := store.Register(ctx, registration("deletion-manager"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := store.Register(ctx, registration("deletion-candidate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := store.AcquireLease(ctx, manager.ID, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StartSync(ctx, lease, candidate.ID); err != nil {
+		t.Fatal(err)
+	}
+	operation := publishFixture(t, ctx, pool, "deleted-before-admission")
+	receiptFixture(t, ctx, pool, operation, candidate.ID, false)
+	if _, err := pool.Exec(ctx, `INSERT INTO file_deletions(file_id,operation_id,owner_id)
+ SELECT id,operation_id,owner_id FROM files WHERE operation_id=$1`, operation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "DELETE FROM files WHERE operation_id=$1", operation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE cluster_configuration SET publication_generation=publication_generation+1"); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := store.AdmissionPlan(ctx, candidate.ID)
+	if err != nil || plan.PublicationGeneration != 2 || len(plan.Files) != 0 {
+		t.Fatalf("tombstone leaked into recovery plan: plan=%v err=%v", plan, err)
+	}
+	if _, err := store.Admit(ctx, lease, candidate.ID, 2); !errors.Is(err, ErrSyncRequired) {
+		t.Fatalf("admitted with pending current-generation deletion: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "DELETE FROM object_copies WHERE operation_id=$1 AND node_id=$2", operation, candidate.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Admit(ctx, lease, candidate.ID, 2); err != nil {
+		t.Fatal("did not admit after deletion receipt retired", err)
+	}
+
+	replacement, err := store.Register(ctx, registration("replacement-candidate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StartSync(ctx, lease, replacement.ID); err != nil {
+		t.Fatal(err)
+	}
+	receiptFixture(t, ctx, pool, operation, replacement.ID, true)
+	if _, err := store.Admit(ctx, lease, replacement.ID, 2); err != nil {
+		t.Fatal("old-generation deletion receipt blocked replacement", err)
+	}
+	var retained int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM object_copies WHERE operation_id=$1 AND node_id=$2", operation, replacement.ID).Scan(&retained); err != nil || retained != 1 {
+		t.Fatal("old-generation receipt unexpectedly changed", retained, err)
+	}
+}
+
 func publishFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) string {
 	t.Helper()
 	var id string

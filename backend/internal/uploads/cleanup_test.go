@@ -5,16 +5,107 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/storage"
 	"io"
 	"sync"
 	"testing"
+
+	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/catalog"
+	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/cluster"
+	"github.com/elc1090/project2-2026b-arthurmfroes/backend/internal/storage"
 )
 
 type delayedPart struct {
 	started, release chan struct{}
 	once             sync.Once
 	body             io.Reader
+}
+
+func TestRealDeletedFileCleanupRetriesAndPreservesOpenDownload(t *testing.T) {
+	ctx, pool, services, owner, _ := uploadFixture(t)
+	op := createReceived(t, ctx, services, owner, "00000000-0000-0000-0000-000000000091", "deleted.bin")
+	if _, err := services[0].processNext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	op, err := services[0].Get(ctx, owner, op.ID)
+	if err != nil || op.FileID == nil {
+		t.Fatal(op, err)
+	}
+	opened, _, _, err := services[0].Download(ctx, owner, *op.FileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletion, err := (catalog.Service{Pool: pool}).DeleteFile(ctx, owner, *op.FileID)
+	if err != nil || deletion.OperationID != op.ID {
+		t.Fatal(deletion, err)
+	}
+	if _, _, _, err := services[0].Download(ctx, owner, *op.FileID); !errors.Is(err, ErrNotFound) {
+		t.Fatal("new download admitted after tombstone", err)
+	}
+
+	ambiguous := errors.New("injected ambiguous delete response")
+	target := services[2].cfg.LocalNode.ID
+	originalFactory := services[0].cfg.StorageFor
+	services[0].cfg.StorageFor = func(node cluster.Node) (*storage.Store, error) {
+		if node.ID == target {
+			return storage.New(storage.Options{Endpoint: node.StorageEndpoint, Bucket: "drive-clone", AccessKey: "minioadmin", SecretKey: "minioadmin", BeforeOperation: func(context.Context) error { return ambiguous }})
+		}
+		return originalFactory(node)
+	}
+	removed, err := services[0].CleanupDeletedFiles(ctx)
+	if removed != 2 || !errors.Is(err, ambiguous) {
+		t.Fatalf("first cleanup removed=%d err=%v", removed, err)
+	}
+	var receipts int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM object_copies WHERE operation_id=$1", op.ID).Scan(&receipts); err != nil || receipts != 1 {
+		t.Fatal("ambiguous removal retired receipt", receipts, err)
+	}
+	services[0].cfg.StorageFor = originalFactory
+	if removed, err = services[0].CleanupDeletedFiles(ctx); err != nil || removed != 1 {
+		t.Fatalf("retry removed=%d err=%v", removed, err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM object_copies WHERE operation_id=$1", op.ID).Scan(&receipts); err != nil || receipts != 0 {
+		t.Fatal("retry retained receipt", receipts, err)
+	}
+	body, readErr := io.ReadAll(opened)
+	closeErr := opened.Close()
+	if readErr != nil || closeErr != nil || string(body) != "onetwo" {
+		t.Fatal("opened download did not finish", string(body), readErr, closeErr)
+	}
+}
+
+func TestRealDeletedFileCleanupDoesNotTargetReplacementGeneration(t *testing.T) {
+	ctx, pool, services, owner, _ := uploadFixture(t)
+	op := createReceived(t, ctx, services, owner, "00000000-0000-0000-0000-000000000092", "generation.bin")
+	if _, err := services[0].processNext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	op, err := services[0].Get(ctx, owner, op.ID)
+	if err != nil || op.FileID == nil {
+		t.Fatal(op, err)
+	}
+	if _, err := (catalog.Service{Pool: pool}).DeleteFile(ctx, owner, *op.FileID); err != nil {
+		t.Fatal(err)
+	}
+	target := services[2].cfg.LocalNode.ID
+	if _, err := pool.Exec(ctx, "UPDATE cluster_nodes SET storage_generation=gen_random_uuid() WHERE id=$1", target); err != nil {
+		t.Fatal(err)
+	}
+	originalFactory := services[0].cfg.StorageFor
+	targetedReplacement := false
+	services[0].cfg.StorageFor = func(node cluster.Node) (*storage.Store, error) {
+		if node.ID == target {
+			targetedReplacement = true
+		}
+		return originalFactory(node)
+	}
+	removed, err := services[0].CleanupDeletedFiles(ctx)
+	if err != nil || removed != 2 || targetedReplacement {
+		t.Fatalf("removed=%d replacement_targeted=%v err=%v", removed, targetedReplacement, err)
+	}
+	var receipts int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM object_copies WHERE operation_id=$1", op.ID).Scan(&receipts); err != nil || receipts != 1 {
+		t.Fatal("stale-generation receipt was retired", receipts, err)
+	}
 }
 
 func (r *delayedPart) Read(p []byte) (int, error) {

@@ -155,7 +155,10 @@ func (s *Store) Admit(ctx context.Context, a Lease, nodeID string, expectedPubli
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM files f JOIN upload_operations u ON u.id=f.operation_id
    WHERE NOT EXISTS(SELECT 1 FROM object_copies c JOIN cluster_nodes n ON n.id=c.node_id
     WHERE c.operation_id=u.id AND n.id=$1 AND c.storage_generation=n.storage_generation
-    AND c.size_bytes=u.size_bytes AND c.sha256=u.sha256 AND c.verified_at>=n.transitioned_at))`, nodeID).Scan(&missing); err != nil {
+    AND c.size_bytes=u.size_bytes AND c.sha256=u.sha256 AND c.verified_at>=n.transitioned_at))
+ OR EXISTS(SELECT 1 FROM file_deletions d JOIN object_copies c ON c.operation_id=d.operation_id
+    JOIN cluster_nodes n ON n.id=c.node_id
+    WHERE n.id=$1 AND c.storage_generation=n.storage_generation)`, nodeID).Scan(&missing); err != nil {
 			return err
 		}
 		if missing {
