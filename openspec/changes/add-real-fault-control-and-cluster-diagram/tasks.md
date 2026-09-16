@@ -6,6 +6,8 @@
 | Painel | `implementation/fault-dashboard` | `/tmp/acervo-fault-dashboard` | tarefas 4.1–4.4, somente `frontend/` | integrado em `b0131c7` e `8b50e15`; 42 testes e build OK |
 | Nginx | `implementation/fault-nginx` | `/tmp/acervo-fault-nginx` | tarefa 5.1, somente `nginx/` | integrado em `9f832b1`; 7 testes OK |
 | Atuador | `implementation/fault-actuator` | `/tmp/acervo-fault-actuator` | tarefas 1.2, 1.3, 2.1 e 2.4, pacote isolado | integrado em `974c8eb`, `1df0531` e `102f52b`; race, vet e imagem OK |
+| SSH Railway | `implementation/railway-ssh-adapter` | `/tmp/acervo-railway-ssh-adapter` | adaptador OpenSSH e testes da tarefa 2.3, somente `backend/` | em execução após prova 2.2 validada |
+| Runtime Railway | `implementation/railway-fault-runtime` | `/tmp/acervo-railway-fault-runtime` | helper de sinais e Dockerfiles Railway das tarefas 2.3/6.2 | em execução após prova 2.2 validada |
 
 ## 1. Contrato do atuador e projeção administrativa
 
