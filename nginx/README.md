@@ -33,6 +33,10 @@ Configuração sem membros ou sem autoridade válida devolve 503 para `/api` e
 `/health`. `/internal` não é acessível pela entrada pública. Os demais caminhos usam
 os arquivos de `/usr/share/nginx/html`, com fallback para `index.html`.
 
+O access log omite somente respostas 2xx de `GET /api/admin/cluster` e
+`GET /api/admin/node-operations`, incluindo consultas com query string. Erros nesses
+endpoints, outros métodos e todo o restante do tráfego continuam registrados.
+
 A configuração candidata passa por `nginx -t` antes da troca por rename e reload.
 Falha de validação conserva a anterior até expirar; falha ao sinalizar reload restaura
 o arquivo anterior. Workers antigos ainda podem finalizar conexões durante a troca:
@@ -50,4 +54,6 @@ ACERVO_NGINX_TEST_IMAGE=acervo-lb-control-test:local python3 -m unittest discove
 O teste Docker cria e remove apenas seus próprios containers e sua rede. Exercita
 DNS por hostname Docker, TLS com CA de teste e rejeição de nome incorreto, mistura
 HTTP/HTTPS, fallback do controle, zero membros, expiração, SPA e bloqueio interno.
-Falhas de validação/reload são verificadas separadamente com executor simulado.
+Também confirma no access log real que as duas consultas periódicas bem-sucedidas
+são omitidas enquanto erros, mutações e tráfego comum permanecem. Falhas de
+validação/reload são verificadas separadamente com executor simulado.

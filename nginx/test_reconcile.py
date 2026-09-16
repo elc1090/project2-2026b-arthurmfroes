@@ -14,8 +14,14 @@ def response(version=1, members=None, ttl=3000):
 class ReconcileTests(unittest.TestCase):
     def test_zero_and_ready_render(self):
         template = pathlib.Path(__file__).with_name("nginx.conf").read_text()
-        self.assertIn("return 503;", render(template, "127.0.0.11", ()))
-        self.assertIn("http://backend-1:8080", render(template, "127.0.0.11", snapshot(response())[2]))
+        closed = render(template, "127.0.0.11", ())
+        active = render(template, "127.0.0.11", snapshot(response())[2])
+        self.assertIn("return 503;", closed)
+        self.assertIn("http://backend-1:8080", active)
+        for rendered in (closed, active):
+            self.assertIn('map "$request_method:$uri:$status" $access_loggable', rendered)
+            self.assertIn("~^GET:/api/admin/(cluster|node-operations):2[0-9][0-9]$ 0;", rendered)
+            self.assertIn("access_log /dev/stdout combined if=$access_loggable;", rendered)
         self.assertIn("location ~ ^/internal", template)
         self.assertIn("try_files", template)
 

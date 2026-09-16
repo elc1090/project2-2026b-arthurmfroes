@@ -23,7 +23,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
    state=json.loads(Path('/fixture/state.json').read_text())
    if state is None: self.send_error(503);return
    self.send_response(200);self.end_headers();self.wfile.write(json.dumps(state).encode());return
+  if self.path.startswith('/api/admin/cluster?fail='):
+   self.send_error(500);return
   self.send_response(200);self.end_headers();self.wfile.write(b'https' if isinstance(self.connection,ssl.SSLSocket) else b'http')
+ def do_POST(self):
+  self.send_response(200);self.end_headers();self.wfile.write(b'ok')
  def log_message(self,*a):pass
 plain=http.server.ThreadingHTTPServer(('0.0.0.0',8081),Handler)
 secure=http.server.ThreadingHTTPServer(('0.0.0.0',8443),Handler)
@@ -59,13 +63,16 @@ class RuntimeTests(unittest.TestCase):
             docker('network','create',network)
             try:
                 docker('run','-d','--name',backend,'--network',network,'--network-alias','backend','--network-alias','wrongname','-v',f'{root}:/fixture:ro','--entrypoint','python3',image,'/fixture/backend.py')
-                docker('run','-d','--name',lb,'--network',network,'-p','127.0.0.1::8080','-e','CONTROL_ENDPOINTS=http://missing:8081 http://backend:8081','-e','CONTROL_TOKEN=test-token','-e','CONTROL_TIMEOUT=0.15','-e','CONTROL_INTERVAL=0.05','-e','CONTROL_MAX_STALE=0.4','-v',f'{root}/ca.crt:/etc/ssl/cert.pem:ro','-v',f'{root}/index.html:/usr/share/nginx/html/index.html:ro',image)
+                docker('run','-d','--name',lb,'--network',network,'-p','127.0.0.1::8080','-e','CONTROL_ENDPOINTS=http://missing:8081 http://backend:8081','-e','CONTROL_TOKEN=test-token','-e','CONTROL_TIMEOUT=0.15','-e','CONTROL_INTERVAL=0.05','-e','CONTROL_MAX_STALE=2','-v',f'{root}/ca.crt:/etc/ssl/cert.pem:ro','-v',f'{root}/index.html:/usr/share/nginx/html/index.html:ro',image)
                 port=docker('port',lb,'8080/tcp').split(':')[-1]
                 origin=f'http://127.0.0.1:{port}'
                 def get(path):
                     try:
                         with urllib.request.urlopen(origin+path,timeout=2) as r:return r.status,r.read().decode()
                     except urllib.error.HTTPError as e:return e.code,e.read().decode()
+                def post(path):
+                    request=urllib.request.Request(origin+path,data=b'{}',method='POST')
+                    with urllib.request.urlopen(request,timeout=2) as r:return r.status,r.read().decode()
                 def wait_status(expected,path='/api/files'):
                     deadline=time.monotonic()+8
                     while time.monotonic()<deadline:
@@ -90,8 +97,23 @@ class RuntimeTests(unittest.TestCase):
                 state(response(version=3,members=[],ttl=800));wait_status(503)
                 state(response(version=4,members=members,ttl=800));wait_status(200)
                 state(None);wait_status(503)
-                state(response(version=5,members=members,ttl=800));wait_status(200)
-                print('real nginx: Docker DNS, HTTP+verified HTTPS, bad TLS rejected, control fallback, SPA, zero members and expiry passed')
+                state(response(version=5,members=members[:1],ttl=5000))
+                time.sleep(.3)
+                wait_status(200)
+                quiet='quiet-'+suffix
+                visible='visible-'+suffix
+                self.assertEqual(get('/api/admin/cluster?poll='+quiet)[0],200)
+                self.assertEqual(get('/api/admin/node-operations?poll='+quiet)[0],200)
+                self.assertEqual(get('/api/admin/cluster?fail='+visible)[0],500)
+                self.assertEqual(post('/api/admin/cluster?mutation='+visible)[0],200)
+                self.assertEqual(get('/api/files?request='+visible)[0],200)
+                time.sleep(.1)
+                logs=docker('logs',lb)
+                self.assertNotIn(quiet,logs)
+                self.assertIn('GET /api/admin/cluster?fail='+visible,logs)
+                self.assertIn('POST /api/admin/cluster?mutation='+visible,logs)
+                self.assertIn('GET /api/files?request='+visible,logs)
+                print('real nginx: routing and selective admin polling access logs passed')
             finally:
                 for name in (lb,backend):subprocess.run(['docker','rm','-f',name],capture_output=True)
                 subprocess.run(['docker','network','rm',network],capture_output=True)
