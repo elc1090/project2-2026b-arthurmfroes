@@ -76,11 +76,11 @@ segunda fila. Atualizada pelo coordenador após delegação, integração ou blo
 
 | Frente | Responsável | Tarefas | Branch/worktree | Estado e próxima ação |
 | --- | --- | --- | --- | --- |
-| Coordenação | Agente principal | Contratos, integração e testes distribuídos | main / raiz do projeto | 45/46 concluídas; medição comparativa de memória em andamento |
+| Coordenação | Agente principal | Contratos, integração e testes distribuídos | main / raiz do projeto | 45/46 concluídas; execução interrompida a pedido do usuário, que fará os testes |
 | Controle e administração | backend_base | 6.1 e 6.4, associação e retirada definitiva | implementation/acervo-cluster-control / /tmp/acervo-cluster-control | Helper concluído e nó restaurado; aguardando próxima atribuição |
 | Base SQL | Sem executor ativo | 1.2 | implementation/acervo-backend-sql / /tmp/acervo-backend-sql | Inativa; entrega integrada e validada |
 | Uploads | infrastructure | 5.1–5.9 e cópia de recuperação | implementation/acervo-storage / /tmp/acervo-storage | Prova de scripts/dev.sh integrada e verificada; executor encerrado |
-| Frontend | frontend | 8.5, memória em 256 MiB e 2 GiB | implementation/acervo-frontend / /tmp/acervo-frontend | Janela exclusiva para nova baseline de 256 MiB; depois 2 GiB |
+| Frontend | frontend | 8.5, memória em 256 MiB e 2 GiB | implementation/acervo-frontend / /tmp/acervo-frontend | Encerrado; navegador, sampler e watcher parados, nenhuma nova rodada |
 | Infraestrutura | Sem executor ativo | 1.3–1.5 | implementation/acervo-infra-runtime / /tmp/acervo-infra-runtime | Inativa; provas integradas e ambiente de teste restaurado |
 
 As demais frentes aguardam as dependências descritas na seção 11 do design.
@@ -761,3 +761,16 @@ quatro downloads e listagens, preservados após reinício. Relatórios execute/r
 complete=true revisados; 503 restritos à espera de readiness. Dez containers
 anteriores restaurados, três ready. README e roteiro atualizados; verificações
 Go/frontend/Compose já passaram nos snapshots dos commits. Só 8.5 permanece aberta.
+
+
+O usuário pediu encerrar a verificação e testar manualmente. Só 8.5 permanece
+aberta, sem novo trabalho delegado. A nova rodada de 256 MiB concluiu upload e
+download com SHA-256 igual, com 147 amostras de memória. A rodada de 2 GiB foi
+interrompida antes de concluir; download e conferência física por site não foram
+executados nesta rodada. Operação b8410fb9-d0cb-4f36-97d5-6811e20170df e artefatos
+em /tmp/acervo-memory-fresh-2048 preservados para eventual retomada. Nenhum volume
+foi removido. Essa interrupção não equivale a aprovação da tarefa.
+
+Encerramento confirmado pelo executor: navegador fechado, sampler e watcher
+terminaram com código 0. Foram preservadas 419 amostras parciais; último estado
+observado em 50% do envio. Todos os executores estão sem trabalho ativo.
