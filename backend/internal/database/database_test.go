@@ -109,10 +109,10 @@ func TestCockroachIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		var count int
-		if err := pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 3 {
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 4 {
 			t.Fatalf("migration count=%d err=%v", count, err)
 		}
-		if err := pool.QueryRow(ctx, "SELECT count(*) FROM information_schema.tables WHERE table_schema=$1", schema).Scan(&count); err != nil || count != 20 {
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM information_schema.tables WHERE table_schema=$1", schema).Scan(&count); err != nil || count != 21 {
 			t.Fatalf("table count=%d err=%v", count, err)
 		}
 	})

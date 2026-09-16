@@ -13,7 +13,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = []string{"001_initial.sql", "002_node_faults.sql", "003_node_lifecycle.sql"}
+var migrationNames = []string{"001_initial.sql", "002_node_faults.sql", "003_node_lifecycle.sql", "004_file_deletions.sql"}
 
 // Migrate serializes callers through a row lock and commits initial CREATE TABLE
 // statements together with their checksums. Existing migration files are immutable.

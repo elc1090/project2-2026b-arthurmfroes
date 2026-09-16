@@ -36,6 +36,12 @@ type File struct {
 	PublishedAt time.Time `json:"published_at"`
 }
 
+type Deletion struct {
+	FileID      string    `json:"file_id"`
+	OperationID string    `json:"operation_id"`
+	DeletedAt   time.Time `json:"deleted_at"`
+}
+
 type Listing struct {
 	Folder  *Folder  `json:"folder"`
 	Folders []Folder `json:"folders"`
@@ -163,4 +169,73 @@ func (s Service) List(ctx context.Context, owner string, parent *string) (Listin
 		return rows.Err()
 	})
 	return result, err
+}
+
+// DeleteFile commits the permanent intent before physical cleanup. Repeating the
+// same file ID as its owner returns the original tombstone without incrementing
+// publication_generation again.
+func (s Service) DeleteFile(ctx context.Context, owner, fileID string) (Deletion, error) {
+	var deletion Deletion
+	err := database.WithTx(ctx, s.Pool, func(tx pgx.Tx) error {
+		guard := func() error {
+			if s.Guard != nil {
+				return s.Guard(ctx, tx)
+			}
+			return nil
+		}
+		if err := guard(); err != nil {
+			return err
+		}
+		loadDeletion := func() error {
+			return tx.QueryRow(ctx, `SELECT file_id::STRING,operation_id::STRING,deleted_at
+ FROM file_deletions WHERE file_id=$1 AND owner_id=$2`, fileID, owner).Scan(&deletion.FileID, &deletion.OperationID, &deletion.DeletedAt)
+		}
+		if err := loadDeletion(); err == nil {
+			return guard()
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+
+		var parent *string
+		if err := tx.QueryRow(ctx, `SELECT folder_id::STRING FROM files WHERE id=$1 AND owner_id=$2`, fileID, owner).Scan(&parent); err != nil {
+			return err
+		}
+		if err := LockDirectory(ctx, tx, owner, parent); err != nil {
+			return err
+		}
+		// A concurrent deletion may have committed while this transaction waited
+		// for the directory lock.
+		if err := loadDeletion(); err == nil {
+			return guard()
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+
+		if err := tx.QueryRow(ctx, `SELECT id::STRING,operation_id::STRING FROM files
+ WHERE id=$1 AND owner_id=$2 AND folder_id IS NOT DISTINCT FROM $3::UUID FOR UPDATE`, fileID, owner, parent).Scan(&deletion.FileID, &deletion.OperationID); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `INSERT INTO file_deletions(file_id,operation_id,owner_id)
+ VALUES($1,$2,$3) RETURNING deleted_at`, deletion.FileID, deletion.OperationID, owner).Scan(&deletion.DeletedAt); err != nil {
+			return err
+		}
+		if tag, err := tx.Exec(ctx, `DELETE FROM files WHERE id=$1 AND owner_id=$2`, deletion.FileID, owner); err != nil {
+			return err
+		} else if tag.RowsAffected() != 1 {
+			return pgx.ErrNoRows
+		}
+		if _, err := tx.Exec(ctx, `UPDATE cluster_configuration
+ SET publication_generation=publication_generation+1,updated_at=clock_timestamp() WHERE singleton=true`); err != nil {
+			return err
+		}
+		return guard()
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Deletion{}, ErrNotFound
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
+		return Deletion{}, ErrInvalid
+	}
+	return deletion, err
 }
