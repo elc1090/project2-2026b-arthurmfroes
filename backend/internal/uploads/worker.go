@@ -166,6 +166,10 @@ func (s *Service) process(ctx context.Context, c claim) error {
 	if len(snapshot.Members) == 0 {
 		return cluster.ErrNoAuthority
 	}
+	work, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go s.cancelOnConfigurationChange(work, cancel, snapshot.Version)
+	ctx = work
 	sum, err := digest(c.Operation.SHA256)
 	if err != nil {
 		return err
@@ -196,6 +200,27 @@ func (s *Service) process(ctx context.Context, c claim) error {
 		}
 	}
 	return s.publish(ctx, c)
+}
+
+// A worker may be streaming a large object when the manager removes one of its
+// destinations. Stop that attempt as soon as the authoritative membership
+// version changes so the durable operation can be claimed again with a fresh
+// snapshot instead of waiting on the failed storage connection.
+func (s *Service) cancelOnConfigurationChange(ctx context.Context, cancel context.CancelFunc, version int64) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			var current int64
+			if err := s.cfg.Pool.QueryRow(ctx, "SELECT version FROM cluster_configuration WHERE singleton=true").Scan(&current); err == nil && current != version {
+				cancel()
+				return
+			}
+		}
+	}
 }
 
 // partsReader validates one bounded browser part before exposing it to assembly.
