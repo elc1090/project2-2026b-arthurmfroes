@@ -21,6 +21,32 @@ type removeSpy struct {
 	failOnce error
 }
 
+func (s *removeSpy) ListObjects(ctx context.Context, _ string, options minio.ListObjectsOptions) <-chan minio.ObjectInfo {
+	objects := []minio.ObjectInfo{}
+	for key, versions := range s.versions {
+		if !strings.HasPrefix(key, options.Prefix) {
+			continue
+		}
+		for version, present := range versions {
+			if present {
+				objects = append(objects, minio.ObjectInfo{Key: key, VersionID: version})
+			}
+		}
+	}
+	result := make(chan minio.ObjectInfo)
+	go func() {
+		defer close(result)
+		for _, object := range objects {
+			select {
+			case result <- object:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return result
+}
+
 func (s *removeSpy) RemoveObject(_ context.Context, _ string, key string, options minio.RemoveObjectOptions) error {
 	s.calls = append(s.calls, removeCall{key: key, version: options.VersionID})
 	versions := s.versions[key]
@@ -47,6 +73,9 @@ func TestLifecycleValidationAndGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.RemoveFinalVersion(context.Background(), "objects/"+id+"/"+strings.Repeat("a", 64), "version"); !errors.Is(err, denied) {
+		t.Fatal(err)
+	}
+	if err := s.VisitFinalVersions(context.Background(), "objects/"+id+"/"+strings.Repeat("a", 64), func(string, string) error { return nil }); !errors.Is(err, denied) {
 		t.Fatal(err)
 	}
 	for _, invalid := range []string{"", "../", "00000000-0000-0000-0000-00000000000A"} {
@@ -86,6 +115,30 @@ func TestRemoveFinalVersionDeletesOnlyExactVersion(t *testing.T) {
 	}
 	if err := store.RemoveFinalVersion(context.Background(), key, "version-1"); err != nil {
 		t.Fatalf("idempotent retry: %v", err)
+	}
+}
+
+func TestVisitFinalVersionsRemovesOrphansWithoutFollowingPrefix(t *testing.T) {
+	id := "00000000-0000-0000-0000-000000000001"
+	key := "objects/" + id + "/" + strings.Repeat("a", 64)
+	prefixed := key + "suffix"
+	other := "objects/" + id + "/" + strings.Repeat("b", 64)
+	spy := &removeSpy{versions: map[string]map[string]bool{
+		key:      {"recorded": true, "orphan": true},
+		prefixed: {"must-remain": true},
+		other:    {"must-remain": true},
+	}}
+	store := &Store{api: spy, bucket: "test-bucket"}
+	if err := store.VisitFinalVersions(context.Background(), key, func(found, version string) error {
+		return store.RemoveFinalVersion(context.Background(), found, version)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(spy.versions[key]) != 0 || !spy.versions[prefixed]["must-remain"] || !spy.versions[other]["must-remain"] {
+		t.Fatalf("unexpected remaining versions: %#v", spy.versions)
+	}
+	if len(spy.calls) != 2 {
+		t.Fatalf("calls=%+v", spy.calls)
 	}
 }
 

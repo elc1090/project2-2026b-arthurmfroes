@@ -14,6 +14,15 @@ type versionLister interface {
 	ListObjects(context.Context, string, minio.ListObjectsOptions) <-chan minio.ObjectInfo
 }
 
+func (s *Store) versionLister() (versionLister, bool) {
+	api, ok := s.api.(versionLister)
+	// Core has its own low-level ListObjects method, hiding Client.ListObjects.
+	if core, isCore := s.api.(*minio.Core); isCore {
+		api, ok = core.Client, true
+	}
+	return api, ok
+}
+
 // VisitPartVersions enumerates physical temporary versions in one operation's
 // exact namespace. It never includes published object keys or delete markers.
 // The callback runs serially, keeping listing memory independent of file size.
@@ -26,11 +35,7 @@ func (s *Store) VisitPartVersions(ctx context.Context, operation string, visit f
 			return err
 		}
 	}
-	api, ok := s.api.(versionLister)
-	// Core has its own low-level ListObjects method, hiding Client.ListObjects.
-	if core, isCore := s.api.(*minio.Core); isCore {
-		api, ok = core.Client, true
-	}
+	api, ok := s.versionLister()
 	if !ok {
 		return fmt.Errorf("storage does not support version listing")
 	}
@@ -45,6 +50,41 @@ func (s *Store) VisitPartVersions(ctx context.Context, operation string, visit f
 			continue
 		}
 		if !strings.HasPrefix(object.Key, prefix) || object.VersionID == "" || object.VersionID == "null" {
+			return ErrInvalid
+		}
+		if err := visit(object.Key, object.VersionID); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+// VisitFinalVersions enumerates every physical version of one exact canonical
+// final key. MinIO lists by prefix, so results that merely share the prefix are
+// ignored and can never reach the removal callback.
+func (s *Store) VisitFinalVersions(ctx context.Context, key string, visit func(key, version string) error) error {
+	if !canonicalFinalKey(key) || visit == nil {
+		return ErrInvalid
+	}
+	if s.before != nil {
+		if err := s.before(ctx); err != nil {
+			return err
+		}
+	}
+	api, ok := s.versionLister()
+	if !ok {
+		return fmt.Errorf("storage does not support version listing")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	for object := range api.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: key, Recursive: true, WithVersions: true}) {
+		if object.Err != nil {
+			return object.Err
+		}
+		if object.IsDeleteMarker || object.Key != key {
+			continue
+		}
+		if object.VersionID == "" || object.VersionID == "null" {
 			return ErrInvalid
 		}
 		if err := visit(object.Key, object.VersionID); err != nil {

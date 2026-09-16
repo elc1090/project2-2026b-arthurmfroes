@@ -72,7 +72,9 @@ func (s *Service) CleanupDeletedFiles(ctx context.Context) (int, error) {
 		for _, item := range candidates {
 			store, err := s.cfg.StorageFor(item.node)
 			if err == nil {
-				err = store.RemoveFinalVersion(ctx, item.key, item.version)
+				err = store.VisitFinalVersions(ctx, item.key, func(key, version string) error {
+					return store.RemoveFinalVersion(ctx, key, version)
+				})
 			}
 			if err == nil {
 				err = s.userTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
