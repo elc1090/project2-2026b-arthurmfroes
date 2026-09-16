@@ -94,7 +94,8 @@ func (s Service) View(ctx context.Context) (View, error) {
 		rows, err = tx.Query(ctx, `SELECT u.id::STRING,u.status,u.phase,u.part_count,
    (SELECT count(DISTINCT p.part_index) FROM upload_part_copies p JOIN cluster_nodes n ON n.id=p.node_id AND n.storage_generation=p.storage_generation WHERE p.operation_id=u.id),
    (SELECT count(*) FROM object_copies c JOIN cluster_nodes n ON n.id=c.node_id AND n.storage_generation=c.storage_generation JOIN cluster_membership m ON m.node_id=n.id WHERE c.operation_id=u.id),
-   (SELECT count(*) FROM cluster_membership),u.error_code FROM upload_operations u WHERE u.status='pending' ORDER BY u.created_at,u.id`)
+   (SELECT count(*) FROM cluster_membership),u.error_code FROM upload_operations u WHERE u.status='pending'
+   AND NOT EXISTS(SELECT 1 FROM file_deletions d WHERE d.operation_id=u.id) ORDER BY u.created_at,u.id`)
 		if err != nil {
 			return err
 		}

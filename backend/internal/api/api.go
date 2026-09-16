@@ -80,6 +80,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /api/me", a.me)
 	mux.HandleFunc("GET /api/folders", a.list)
 	mux.HandleFunc("POST /api/folders", a.createFolder)
+	mux.HandleFunc("DELETE /api/files/{id}", a.deleteFile)
 	if a.Uploads != nil {
 		mux.HandleFunc("GET /api/files/{id}/download", a.download)
 		mux.HandleFunc("POST /api/uploads", a.createUpload)
@@ -259,4 +260,16 @@ func (a *API) createFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 201, result)
+}
+
+func (a *API) deleteFile(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.user(w, r)
+	if !ok {
+		return
+	}
+	if _, err := a.Catalog.DeleteFile(r.Context(), user.ID, r.PathValue("id")); err != nil {
+		failure(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -234,7 +234,9 @@ func loadOperation(ctx context.Context, tx pgx.Tx, owner, id string, lock bool) 
 	op := Operation{Parts: []Part{}}
 	var raw []byte
 	var manifest []byte
-	query := `SELECT id::STRING,idempotency_key::STRING,folder_id::STRING,name,size_bytes,sha256,manifest,status,phase,error_code FROM upload_operations WHERE id=$1 AND owner_id=$2`
+	query := `SELECT u.id::STRING,u.idempotency_key::STRING,u.folder_id::STRING,u.name,u.size_bytes,u.sha256,u.manifest,u.status,u.phase,u.error_code
+ FROM upload_operations u WHERE u.id=$1 AND u.owner_id=$2
+ AND NOT EXISTS(SELECT 1 FROM file_deletions d WHERE d.operation_id=u.id)`
 	if lock {
 		query += " FOR UPDATE"
 	}
@@ -285,7 +287,8 @@ func (s *Service) List(ctx context.Context, owner string) ([]Operation, error) {
 	ids := []string{}
 	err := s.userTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		ids = ids[:0]
-		rows, err := tx.Query(ctx, "SELECT id::STRING FROM upload_operations WHERE owner_id=$1 ORDER BY created_at,id", owner)
+		rows, err := tx.Query(ctx, `SELECT u.id::STRING FROM upload_operations u WHERE u.owner_id=$1
+ AND NOT EXISTS(SELECT 1 FROM file_deletions d WHERE d.operation_id=u.id) ORDER BY u.created_at,u.id`, owner)
 		if err != nil {
 			return err
 		}
