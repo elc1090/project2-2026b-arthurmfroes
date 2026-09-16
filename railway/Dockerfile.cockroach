@@ -1,0 +1,16 @@
+FROM golang:1.25-alpine AS tools
+WORKDIR /src/backend
+COPY backend/go.mod backend/go.sum ./
+COPY backend/cmd/fault-signal ./cmd/fault-signal
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/fault-signal ./cmd/fault-signal
+
+FROM alpine:3.22 AS init
+RUN apk add --no-cache tini-static
+
+FROM cockroachdb/cockroach:v23.2.0
+COPY cockroach/start.sh /cockroach/start.sh
+COPY --from=init /sbin/tini-static /usr/local/bin/tini
+COPY --from=tools /out/fault-signal /usr/local/bin/fault-signal
+RUN chmod +x /cockroach/start.sh
+EXPOSE 26257 8080
+ENTRYPOINT ["/usr/local/bin/tini", "-g", "--", "/cockroach/start.sh"]
