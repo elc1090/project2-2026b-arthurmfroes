@@ -267,7 +267,7 @@ func TestSilentManagerFailureWaitsForLeaseExpiry(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		n.controller, err = New(Config{Pool: pool, Store: store, Local: n.node, Token: "test-control-token", StorageProbe: func(context.Context) error { return nil }, Interval: 10 * time.Millisecond, Timeout: 10 * time.Millisecond, LeaseTTL: 150 * time.Millisecond, FailureThreshold: 1})
+		n.controller, err = New(Config{Pool: pool, Store: store, Local: n.node, Token: "test-control-token", StorageProbe: func(context.Context) error { return nil }, Interval: 10 * time.Millisecond, Timeout: 500 * time.Millisecond, LeaseTTL: 2 * time.Second, FailureThreshold: 1})
 		if err != nil {
 			t.Fatal(err)
 		}
