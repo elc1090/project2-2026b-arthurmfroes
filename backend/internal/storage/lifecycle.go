@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -64,6 +66,42 @@ func (s *Store) RemovePartVersion(ctx context.Context, operation, key, version s
 		}
 	}
 	return s.api.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{VersionID: version})
+}
+
+// RemoveFinalVersion removes one exact published object version. Repeating the
+// same request is successful when that key or version is already absent. It
+// never accepts temporary part or health-check namespaces.
+func (s *Store) RemoveFinalVersion(ctx context.Context, key, version string) error {
+	if !canonicalFinalKey(key) || version == "" || version == "null" {
+		return ErrInvalid
+	}
+	if s.before != nil {
+		if err := s.before(ctx); err != nil {
+			return err
+		}
+	}
+	err := s.api.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{VersionID: version})
+	if err == nil {
+		return nil
+	}
+	var response minio.ErrorResponse
+	if errors.As(err, &response) && (response.Code == minio.NoSuchVersion || response.Code == minio.NoSuchKey) {
+		return nil
+	}
+	return fmt.Errorf("remove final object version: %w", err)
+}
+
+func canonicalFinalKey(key string) bool {
+	parts := strings.Split(key, "/")
+	if len(parts) != 3 || parts[0] != "objects" || !canonicalOperation(parts[1]) || len(parts[2]) != 2*sha256.Size {
+		return false
+	}
+	for _, c := range parts[2] {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func canonicalOperation(id string) bool {

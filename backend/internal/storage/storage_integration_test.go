@@ -67,6 +67,20 @@ func TestIntegrationLocalStorage(t *testing.T) {
 							t.Fatalf("download mismatch: size=%d info=%+v err=%v close=%v", size, info, err, closeErr)
 						}
 					}
+					if err := s.RemoveFinalVersion(ctx, first.Key, first.VersionID); err != nil {
+						t.Fatal(err)
+					}
+					if _, _, err := s.Open(ctx, first.Key, first.VersionID); err == nil {
+						t.Fatal("removed physical version still opens")
+					}
+					remaining, info, err := s.Open(ctx, second.Key, second.VersionID)
+					if err != nil {
+						t.Fatal("other physical version was removed", err)
+					}
+					_ = remaining.Close()
+					if info.VersionID != second.VersionID {
+						t.Fatalf("opened version=%s want=%s", info.VersionID, second.VersionID)
+					}
 					t.Logf("bytes=%d key=%s version=%s", first.Size, first.Key, first.VersionID)
 				})
 			}
