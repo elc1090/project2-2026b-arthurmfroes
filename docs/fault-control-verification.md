@@ -38,7 +38,26 @@ e o teste real de expiração do lease com CockroachDB passaram. O navegador mos
 o diagrama com load balancer, três rotas, gerenciador, componentes, controles,
 sequência do incidente, associação/retirada e detalhes técnicos recolhíveis.
 
-O adaptador Railway continua pendente. A change exige provar em uma instância
-descartável que uma segunda sessão SSH consegue enviar `kill -CONT 1` depois que a
-primeira envia `kill -STOP 1`. Sem essa evidência, `railway-ssh` responde 503 e não
-simula a falha.
+## Prova descartável no Railway
+
+A prova foi executada em 16/09/2026 contra uma instância descartável de
+`nginx:latest`, identificada somente durante o ensaio pelo ID de instância fornecido
+no painel. Uma chave Ed25519 dedicada foi cadastrada na conta e o acesso usou o
+cliente OpenSSH diretamente, sem token de API e sem Railway CLI no caminho remoto.
+
+A conexão confirmou `nginx` como PID 1, usuário remoto `root` e estado inicial `S`.
+O comando `kill -STOP 1` retornou código zero, mas o estado permaneceu `S` na mesma
+sessão e numa segunda sessão SSH independente. `SigPnd` e `ShdPnd` também ficaram
+zerados. A segunda sessão foi aceita e `kill -CONT 1` retornou código zero, porém não
+havia processo parado para retomar. Portanto, a premissa de congelar o PID 1 do
+container por sinal é inválida neste ambiente e a tarefa 2.2 permanece aberta.
+
+O gateway apresentou a chave Ed25519
+`SHA256:+S1xg92FrnHz6pY3bpkmh1OGtWQGNANXilPzlxA7B1g`, que foi fixada num
+`known_hosts` isolado durante o ensaio com `StrictHostKeyChecking=yes`. A Railway não
+publica uma lista autoritativa e estável das chaves do gateway distribuído; uma
+configuração de produção precisa definir explicitamente como inicializa e renova esse
+conjunto sem desligar a verificação.
+
+O adaptador `railway-ssh` continua respondendo 503. Não foi criada simulação nem
+implementado um caminho que declararia sucesso sem tornar o serviço indisponível.
