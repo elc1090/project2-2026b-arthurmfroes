@@ -188,23 +188,39 @@ export function incidentSteps(
   node: AdminNode,
   actions: FaultAction[],
   publicationGeneration: number,
+  events: AdminEvent[] = [],
 ): IncidentStep[] {
   const ordered = actions
-    .filter((item) => item.node_id === node.id || item.node_id === node.node_id)
+    .filter((item) => item.node_id === node.node_id)
     .sort((a, b) => Date.parse(a.updated_at) - Date.parse(b.updated_at));
   const stop = [...ordered].reverse().find((item) => item.action === "stop");
+  const latestRestore = [...ordered]
+    .reverse()
+    .find((item) => item.action === "restore");
   const restore = stop
-    ? ordered.find(
+    ? [...ordered].reverse().find(
         (item) =>
           item.action === "restore" &&
           Date.parse(item.updated_at) >= Date.parse(stop.updated_at),
       )
-    : undefined;
+    : latestRestore;
   if (!stop && !restore) return [];
   const affected = stop?.component || restore?.component || "node";
   const stopped = stop?.status === "stopped";
   const restored = actionCompleted(restore);
-  const excluded = node.state === "unavailable" || node.state === "removed";
+  const nodeEvents = events.filter(
+    (event) =>
+      (event.node_id === node.id || event.node_id === node.node_id) &&
+      (!stop || Date.parse(event.at) >= Date.parse(stop.updated_at)),
+  );
+  const excluded =
+    node.state === "unavailable" ||
+    node.state === "removed" ||
+    nodeEvents.some((event) => event.kind === "node_excluded");
+  const readmitted =
+    restored &&
+    (nodeEvents.some((event) => event.kind === "node_admitted") ||
+      node.state === "ready");
   return [
     {
       id: "provider-stop",
@@ -261,9 +277,9 @@ export function incidentSteps(
     {
       id: "readmitted",
       label: "Nó readmitido",
-      complete: restored && node.state === "ready",
+      complete: readmitted,
       detail:
-        restored && node.state === "ready"
+        readmitted
           ? "Nó pronto"
           : "Aguardando decisão do gerenciador",
     },

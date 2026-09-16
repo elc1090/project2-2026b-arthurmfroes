@@ -40,7 +40,7 @@ const node: AdminNode = {
 function action(overrides: Partial<FaultAction> = {}): FaultAction {
   return {
     id: "action-1",
-    node_id: "id-2",
+    node_id: "node-2",
     component: "storage",
     action: "stop",
     status: "stopped",
@@ -85,7 +85,28 @@ test("sequência distingue exclusão, restauração, sincronização e readmiss�
       }),
     ],
     7,
+    [
+      {
+        id: "event-excluded",
+        node_id: "id-2",
+        kind: "node_excluded",
+        configuration_version: 3,
+        manager_term: 1,
+        details: { reason: "storage probe failed" },
+        at: "2026-09-16T12:00:10Z",
+      },
+      {
+        id: "event-admitted",
+        node_id: "id-2",
+        kind: "node_admitted",
+        configuration_version: 4,
+        manager_term: 1,
+        details: null,
+        at: "2026-09-16T12:01:30Z",
+      },
+    ],
   );
+  assert.equal(recovered.find((step) => step.id === "node-excluded")?.complete, true);
   assert.equal(recovered.find((step) => step.id === "synchronization")?.complete, true);
   assert.equal(recovered.find((step) => step.id === "readmitted")?.complete, true);
   assert.equal(recovered.find((step) => step.id === "route-restored")?.complete, true);

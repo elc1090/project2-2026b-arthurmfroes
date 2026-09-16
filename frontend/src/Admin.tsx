@@ -1,19 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { api, APIError, message } from "./api";
 import {
-  componentNames,
-  componentState,
   eventLabel,
-  leaseCurrent,
-  nodeStates,
-  observationAge,
-  observationLabel,
   operationStates,
-  reasonLabel,
+  safeEventDetail,
   type AdminView,
 } from "./admin-model";
 import { NodeManagement } from "./NodeManagement";
 import { FaultControls } from "./FaultControls";
+import { ClusterDiagram, NodeIncident } from "./ClusterDiagram";
 import { operationError } from "./queue";
 function date(value: string | null) {
   return value ? new Date(value).toLocaleString("pt-BR") : "Não informado";
@@ -28,6 +23,7 @@ export function Admin({
   const [view, setView] = useState<AdminView | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
+    [selectedID, setSelectedID] = useState<string | null>(null),
     [clock, setClock] = useState(performance.now());
   const receivedAt = useRef(performance.now());
   const pollNow = useRef<() => void>(() => {});
@@ -56,6 +52,11 @@ export function Admin({
         receivedAt.current = performance.now();
         setClock(receivedAt.current);
         setView(result);
+        setSelectedID((selected) =>
+          selected && result.nodes.some((node) => node.id === selected)
+            ? selected
+            : result.nodes[0]?.id || null,
+        );
         setError("");
       } catch (e) {
         if (disposed) return;
@@ -87,7 +88,7 @@ export function Admin({
     };
   }, []);
   const elapsed = Math.max(0, clock - receivedAt.current);
-  const manager = view?.nodes.find((node) => node.id === view.manager_id);
+  const selected = view?.nodes.find((node) => node.id === selectedID);
   return (
     <section className="admin">
       <div className="title-row">
@@ -115,101 +116,27 @@ export function Admin({
         </p>
       ) : (
         <>
-          <div className="admin-summary">
-            <article>
-              <span>Configuração ativa</span>
-              <strong>v{view.version}</strong>
-              <small>
-                Geração de publicações {view.publication_generation}
-              </small>
-            </article>
-            <article>
-              <span>Gerenciador</span>
-              <strong>
-                {manager?.node_id ||
-                  (view.manager_id ? "Nó não listado" : "Sem gerenciador")}
-              </strong>
-              <small>
-                Mandato {view.manager_term} ·{" "}
-                {leaseCurrent(view, elapsed)
-                  ? "Concessão vigente"
-                  : "Concessão vencida ou ausente"}
-              </small>
-            </article>
-            <article>
-              <span>Última consulta</span>
-              <strong className="admin-date">{date(view.observed_at)}</strong>
-              <small>
-                {error || elapsed > 15000
-                  ? "Dados desatualizados"
-                  : "Consulta recente"}{" "}
-                · atualização há {Math.floor(elapsed / 1000)} s
-              </small>
-            </article>
-          </div>
-          <h2 className="admin-section-title">
-            Nós <span>{view.nodes.length}</span>
-          </h2>
-          <div className="node-grid">
-            {view.nodes.map((node) => {
-              const age = observationAge(
-                node.observed_at,
-                view.observed_at,
-                elapsed,
-              );
-              return (
-                <article className="node-card" key={node.id}>
-                  <div className="node-heading">
-                    <h3>{node.node_id}</h3>
-                    <span className={`node-state state-${node.state}`}>
-                      {nodeStates[node.state] || "Estado desconhecido"}
-                    </span>
-                  </div>
-                  <p
-                    className={
-                      age === null || age > 15000
-                        ? "observation stale"
-                        : "observation"
-                    }
-                  >
-                    {observationLabel(age)}
-                  </p>
-                  <dl className="components">
-                    {Object.entries(componentNames).map(([key, label]) => (
-                      <div key={key}>
-                        <dt>{label}</dt>
-                        <dd>{componentState(node.health, key)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                  <p className="node-reason">{reasonLabel(node.reason)}</p>
-                  <p className="node-detail">
-                    Última transição: {date(node.transitioned_at)}
-                    <br />
-                    Geração sincronizada: {node.synced_generation} de{" "}
-                    {view.publication_generation}
-                    {node.id === view.manager_id && (
-                      <>
-                        <br />
-                        Gerenciador · concessão até{" "}
-                        {date(view.lease_expires_at)}
-                      </>
-                    )}
-                  </p>
-                  {view.simulation_enabled && node.state !== "removed" && (
-                    <FaultControls
-                      id={node.id}
-                      nodeID={node.node_id}
-                      observed={node.simulation}
-                      manager={node.id === view.manager_id}
-                      refresh={() => pollNow.current()}
-                      expired={() => expire.current()}
-                    />
-                  )}
-                </article>
-              );
-            })}
-          </div>
+          <ClusterDiagram
+            view={view}
+            elapsed={elapsed}
+            selectedID={selectedID}
+            onSelect={setSelectedID}
+          />
+          {selected && (
+            <div className="admin-detail-grid">
+              <NodeIncident view={view} node={selected} />
+              {selected.state !== "removed" && (
+                <FaultControls
+                  node={selected}
+                  actions={view.fault_actions}
+                  available={view.fault_control_available}
+                  unavailableReason={view.fault_control_error}
+                  refresh={() => pollNow.current()}
+                  expired={() => expire.current()}
+                />
+              )}
+            </div>
+          )}
           <NodeManagement
             owner={owner}
             nodes={view.nodes}
@@ -276,24 +203,31 @@ export function Admin({
               </table>
             </div>
           )}
-          <h2 className="admin-section-title">Eventos recentes</h2>
-          {view.events.length === 0 ? (
-            <p className="admin-empty">Nenhum evento registrado.</p>
-          ) : (
-            <ol className="event-list">
-              {view.events.map((event) => (
-                <li key={event.id}>
-                  <time>{date(event.at)}</time>
-                  <span>{eventLabel(event.kind)}</span>
-                  <small>
-                    {view.nodes.find((node) => node.id === event.node_id)
-                      ?.node_id || "Cluster"}{" "}
-                    · configuração v{event.configuration_version}
-                  </small>
-                </li>
-              ))}
-            </ol>
-          )}
+          <details className="event-history">
+            <summary>Eventos técnicos recentes ({view.events.length})</summary>
+            {view.events.length === 0 ? (
+              <p className="admin-empty">Nenhum evento registrado.</p>
+            ) : (
+              <ol className="event-list">
+                {view.events.map((event) => {
+                  const detail = safeEventDetail(event);
+                  return (
+                    <li key={event.id}>
+                      <time>{date(event.at)}</time>
+                      <span>{eventLabel(event.kind)}</span>
+                      <small>
+                        {view.nodes.find((node) => node.id === event.node_id)
+                          ?.node_id || "Cluster"}{" "}
+                        · configuração v{event.configuration_version} · mandato{" "}
+                        {event.manager_term}
+                        {detail ? ` · ${detail}` : ""}
+                      </small>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </details>
         </>
       )}
     </section>
