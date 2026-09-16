@@ -254,6 +254,54 @@ func TestSlowRecoveryDoesNotBlockManager(t *testing.T) {
 	}
 }
 
+func TestSilentManagerFailureWaitsForLeaseExpiry(t *testing.T) {
+	pool, ctx := testPool(t)
+	store := cluster.New(pool)
+	nodes := make([]*testNode, 2)
+	for i := range nodes {
+		n := &testNode{}
+		n.healthy.Store(true)
+		n.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { n.controller.Handler().ServeHTTP(w, r) }))
+		var err error
+		n.node, err = store.Register(ctx, cluster.Registration{NodeID: fmt.Sprintf("silent-node-%d", i), BackendEndpoint: n.server.URL, DatabaseEndpoint: "postgresql://db/acervo", StorageEndpoint: "http://storage"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		n.controller, err = New(Config{Pool: pool, Store: store, Local: n.node, Token: "test-control-token", StorageProbe: func(context.Context) error { return nil }, Interval: 10 * time.Millisecond, Timeout: 10 * time.Millisecond, LeaseTTL: 150 * time.Millisecond, FailureThreshold: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes[i] = n
+	}
+	defer nodes[1].server.Close()
+	if err := nodes[0].controller.Step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before := nodes[0].controller.lease
+	if before.HolderID != nodes[0].node.ID {
+		t.Fatalf("holder=%s", before.HolderID)
+	}
+	// Abrupt disappearance: the manager cannot run Step and therefore cannot
+	// publish a farewell, release its lease, or change membership.
+	nodes[0].server.Close()
+	if err := nodes[1].controller.Step(ctx); !errors.Is(err, cluster.ErrNoAuthority) {
+		t.Fatalf("successor acquired live lease: %v", err)
+	}
+	var holder string
+	var term int64
+	if err := pool.QueryRow(ctx, "SELECT holder_id::STRING,term FROM manager_lease WHERE singleton=true").Scan(&holder, &term); err != nil || holder != nodes[0].node.ID || term != before.Term {
+		t.Fatalf("lease changed before expiry: holder=%s term=%d err=%v", holder, term, err)
+	}
+	waitLeaseExpired(t, ctx, pool)
+	if err := nodes[1].controller.Step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if nodes[1].controller.lease.HolderID != nodes[1].node.ID || nodes[1].controller.lease.Term <= before.Term {
+		t.Fatalf("successor lease=%+v previous=%+v", nodes[1].controller.lease, before)
+	}
+	assertMembers(t, ctx, store, 1)
+}
+
 func waitLeaseExpired(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	for {
