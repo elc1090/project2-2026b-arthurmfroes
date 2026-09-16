@@ -61,3 +61,23 @@ conjunto sem desligar a verificação.
 
 O adaptador `railway-ssh` continua respondendo 503. Não foi criada simulação nem
 implementado um caminho que declararia sucesso sem tornar o serviço indisponível.
+
+### Validação do init externo e do grupo de processos
+
+Uma segunda imagem descartável colocou `tini` como PID 1 e iniciou o Nginx como seu
+único filho direto. O PID numérico do filho variou no teste local, por isso a prova
+resolveu o filho por `/proc/1/task/1/children` e atuou sobre todos os processos de seu
+grupo, sem procurar nome de executável e sem receber comando ou PID do cliente.
+
+Localmente, mestre e workers passaram de `S` para `T`, uma leitura HTTP expirou em
+dois segundos, uma execução separada enviou `SIGCONT` e a leitura voltou a responder.
+Na instância Railway, o grupo inteiro passou para `T` às 19:21:58. A primeira sessão
+terminou com código zero às 19:22:01. Uma segunda sessão SSH foi aceita enquanto o
+workload permanecia parado, confirmou timeout HTTP, retomou o mesmo grupo e observou
+todos os processos novamente em `S`; o HTTP respondeu e a sessão terminou com código
+zero às 19:22:07.
+
+A hipótese técnica está validada: manter um init mínimo como PID 1 permite congelar e
+retomar abruptamente o grupo do workload por uma nova sessão Railway. A spec ainda
+precisa substituir os comandos contra PID 1 por um helper fixo que valide o único
+filho direto e sinalize seu grupo; até essa revisão, 2.2 e 2.3 continuam abertas.

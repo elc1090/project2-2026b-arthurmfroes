@@ -2,7 +2,7 @@
 
 | Frente | Branch | Worktree | Responsabilidade | Estado |
 | --- | --- | --- | --- | --- |
-| Coordenação | `main` | raiz do projeto | contratos, backend, Compose, integração e evidências | prova Railway executada; PID 1 permaneceu em `S` após `SIGSTOP`, exigindo revisão do design antes de 2.2/2.3 |
+| Coordenação | `main` | raiz do projeto | contratos, backend, Compose, integração e evidências | alternativa validada localmente e no Railway com `tini` e sinal no grupo filho; aguarda revisão da spec antes de 2.2/2.3 |
 | Painel | `implementation/fault-dashboard` | `/tmp/acervo-fault-dashboard` | tarefas 4.1–4.4, somente `frontend/` | integrado em `b0131c7` e `8b50e15`; 42 testes e build OK |
 | Nginx | `implementation/fault-nginx` | `/tmp/acervo-fault-nginx` | tarefa 5.1, somente `nginx/` | integrado em `9f832b1`; 7 testes OK |
 | Atuador | `implementation/fault-actuator` | `/tmp/acervo-fault-actuator` | tarefas 1.2, 1.3, 2.1 e 2.4, pacote isolado | integrado em `974c8eb`, `1df0531` e `102f52b`; race, vet e imagem OK |
