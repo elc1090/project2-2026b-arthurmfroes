@@ -32,7 +32,7 @@ Remover a linha de `files` libera imediatamente os índices únicos de nome e ex
 
 ### 3. Limpeza por recibo físico
 
-Um worker elegível percorrerá tombstones que ainda possuem `object_copies`. Para cada recibo, abrirá o storage do node registrado e removerá exatamente `object_key` e `s3_version_id`. Depois do sucesso, apagará o recibo correspondente numa transação que reconfirma o tombstone e a geração do storage. Falha de rede mantém o recibo para nova tentativa.
+Um worker elegível percorrerá tombstones que ainda possuem `object_copies`. Para cada recibo, abrirá o storage do node registrado, enumerará somente as versões cuja chave seja exatamente o `object_key` canônico e removerá cada `versionId` encontrado. Isso inclui versões órfãs deixadas por uma escrita que terminou antes de o recibo SQL ser persistido. Depois do sucesso, apagará o recibo correspondente numa transação que reconfirma o tombstone e a geração do storage. Falha de rede mantém o recibo para nova tentativa.
 
 O plano de admissão ignora tombstones porque consulta somente `files`, mas a promoção também verificará que não restam recibos pendentes de exclusão para a geração do node. Assim um node que retorna não carrega uma versão excluída para o estado `ready`.
 
@@ -51,6 +51,7 @@ A API adicionará `DELETE /api/files/{id}`, autorizada pelo proprietário e idem
 - [Um storage pode ficar fora do ar por muito tempo] -> O tombstone e o recibo permanecem persistidos, e a readmissão da geração afetada espera a limpeza.
 - [A barra pode ficar em 100% durante um reenvio] -> O estado textual de recuperação continua visível e `Concluído` permanece reservado à publicação.
 - [A remoção física pode retornar resultado ambíguo] -> A repetição usa a versão exata e só retira o recibo depois de uma resposta de sucesso ou confirmação equivalente de ausência.
+- [A listagem S3 usa correspondência por prefixo] -> A limpeza valida a igualdade da chave retornada e nunca remove outra chave que apenas compartilhe o prefixo.
 - [Tombstones crescem com o uso] -> Esta change os conserva para idempotência e auditoria mínima; política de expiração fica fora do escopo.
 
 ## Migration Plan

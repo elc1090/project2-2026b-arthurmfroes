@@ -25,8 +25,8 @@ subtestes desta migração passaram isoladamente.
 
 ## 2. Limpeza física e recuperação distribuída
 
-- [x] 2.1 [Depende de 1.1] Adicionar ao storage a remoção idempotente de uma versão final por chave e `versionId` exatos, sem aceitar prefixos temporários ou versões vazias; verificar que os testes removem somente a versão solicitada.
-- [x] 2.2 [Depende de 1.2 e 2.1] Implementar o worker que percorre tombstones, remove cada `object_copy` no site registrado e conserva recibos após falha ambígua; verificar sucesso parcial, nova tentativa e geração de storage substituída nos testes de upload.
+- [ ] 2.1 [Depende de 1.1] Adicionar ao storage a enumeração e remoção idempotente de todas as versões de uma chave final canônica, com igualdade exata de chave e `versionId` obrigatório, sem aceitar prefixos temporários; verificar que versões órfãs da mesma chave são removidas e outra chave com prefixo comum é preservada.
+- [ ] 2.2 [Depende de 1.2 e 2.1] Implementar o worker que percorre tombstones, limpa todas as versões da chave no site registrado e conserva recibos após falha ambígua; verificar sucesso parcial, versão órfã, nova tentativa e geração de storage substituída nos testes de upload.
 - [ ] 2.3 [Depende de 2.2] Impedir a admissão de um node enquanto sua geração tiver recibos físicos pendentes de exclusão e manter tombstones fora do plano de arquivos ativos; verificar queda durante exclusão, retorno do node, limpeza e readmissão em teste distribuído do backend.
 - [x] 2.4 [Depende de 1.2 e 2.2] Verificar a concorrência entre exclusão e download: uma requisição nova após o commit recebe não encontrado, enquanto um fluxo que abriu a versão antes do commit termina com checksum correto.
 

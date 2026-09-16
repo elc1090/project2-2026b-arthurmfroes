@@ -9,7 +9,7 @@ Quando um nó perde a única cópia temporária de uma parte, a interface reduz 
 - Permitir que o proprietário exclua permanentemente um arquivo publicado após confirmação na interface.
 - Remover o arquivo do catálogo e bloquear novos downloads antes da limpeza física distribuída.
 - Permitir que downloads iniciados antes da exclusão terminem.
-- Limpar em segundo plano cada versão física registrada, retomando a limpeza quando um storage indisponível voltar e impedindo que a recuperação de um nó restaure o arquivo excluído.
+- Limpar em segundo plano todas as versões físicas da chave canônica do arquivo em cada site registrado, inclusive versões órfãs criadas antes da persistência de um recibo; retomar a limpeza quando um storage indisponível voltar e impedir que a recuperação de um nó restaure o arquivo excluído.
 - Liberar o nome no diretório após a exclusão lógica e retirar a operação excluída do acompanhamento cotidiano.
 
 ## Capabilities
