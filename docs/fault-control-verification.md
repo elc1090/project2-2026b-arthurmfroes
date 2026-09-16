@@ -77,7 +77,21 @@ workload permanecia parado, confirmou timeout HTTP, retomou o mesmo grupo e obse
 todos os processos novamente em `S`; o HTTP respondeu e a sessão terminou com código
 zero às 19:22:07.
 
-A hipótese técnica está validada: manter um init mínimo como PID 1 permite congelar e
-retomar abruptamente o grupo do workload por uma nova sessão Railway. A spec ainda
-precisa substituir os comandos contra PID 1 por um helper fixo que valide o único
-filho direto e sinalize seu grupo; até essa revisão, 2.2 e 2.3 continuam abertas.
+A hipótese técnica ficou validada: manter um init mínimo como PID 1 permite congelar
+e retomar abruptamente o grupo do workload por uma nova sessão Railway. Esse resultado
+determinou a revisão da spec e a implementação do helper fixo que valida o único filho
+direto e sinaliza seu grupo.
+
+Depois da revisão, a imagem Railway definitiva do MinIO foi implantada na mesma
+instância descartável com `tini` e o helper estático. Em 16/09/2026 às 19:40:03,
+`fault-signal stop` retornou `stopped`. Uma sessão SSH independente confirmou
+`stopped`; `fault-signal restore` retornou `running` e outra sessão confirmou
+`running` às 19:40:14. Todos os comandos terminaram com código zero usando a chave
+dedicada e `StrictHostKeyChecking=yes`. A imagem não continha `ps`; a resolução e a
+confirmação dependeram somente de `/proc` e das syscalls do helper.
+
+O adaptador final usa exatamente `fault-signal stop|restore|status`, confirma por
+nova sessão depois de timeout ou conexão interrompida e registra `unknown` quando a
+confirmação também falha. Testes cobrem host key desconhecida, configuração
+incompleta, alvo inválido, topologia inesperada, argumentos fixos, permissões dos
+segredos e remoção dos arquivos temporários.
