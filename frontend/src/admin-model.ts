@@ -36,6 +36,7 @@ export type FaultActionStatus =
   | "running"
   | "stopped"
   | "restored"
+  | "partial"
   | "failed"
   | "unknown";
 export type EventDetails = {
@@ -298,6 +299,7 @@ export function faultActionStatusLabel(status: FaultActionStatus): string {
     running: "Em execução",
     stopped: "Parada confirmada",
     restored: "Restauração confirmada",
+    partial: "Concluída parcialmente",
     failed: "Falhou",
     unknown: "Resultado desconhecido",
   };
@@ -326,6 +328,7 @@ export function safeEventDetail(event: AdminEvent): string | null {
       running: "Em execução",
       stopped: "Parada confirmada",
       restored: "Restauração confirmada",
+      partial: "Concluída parcialmente",
       failed: "Falhou",
       unknown: "Resultado desconhecido",
     };
