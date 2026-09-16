@@ -3,6 +3,8 @@ package admin
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -108,8 +110,23 @@ func (c *HTTPFaultControl) request(ctx context.Context, method string, body any,
 }
 
 func (c *HTTPFaultControl) Start(ctx context.Context, input FaultRequest) (FaultAction, error) {
+	keyBytes := make([]byte, 16)
+	if _, err := rand.Read(keyBytes); err != nil {
+		return FaultAction{}, ErrFaultUnavailable
+	}
+	wireInput := struct {
+		IdempotencyKey string         `json:"idempotency_key"`
+		NodeID         string         `json:"node_id"`
+		Component      FaultComponent `json:"component"`
+		Action         FaultCommand   `json:"action"`
+	}{
+		IdempotencyKey: "backend-" + hex.EncodeToString(keyBytes),
+		NodeID:         input.NodeID,
+		Component:      input.Component,
+		Action:         input.Action,
+	}
 	var result FaultAction
-	err := c.request(ctx, http.MethodPost, input, &result)
+	err := c.request(ctx, http.MethodPost, wireInput, &result)
 	return result, err
 }
 

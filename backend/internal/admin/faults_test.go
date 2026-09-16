@@ -15,8 +15,13 @@ func TestHTTPFaultControlContract(t *testing.T) {
 		}
 		switch r.Method {
 		case http.MethodPost:
-			var input FaultRequest
-			if json.NewDecoder(r.Body).Decode(&input) != nil || !validFaultRequest(input) {
+			var input struct {
+				IdempotencyKey string         `json:"idempotency_key"`
+				NodeID         string         `json:"node_id"`
+				Component      FaultComponent `json:"component"`
+				Action         FaultCommand   `json:"action"`
+			}
+			if json.NewDecoder(r.Body).Decode(&input) != nil || input.IdempotencyKey == "" || !validFaultRequest(FaultRequest{NodeID: input.NodeID, Component: input.Component, Action: input.Action}) {
 				t.Fatal("invalid request body")
 			}
 			w.WriteHeader(http.StatusAccepted)
