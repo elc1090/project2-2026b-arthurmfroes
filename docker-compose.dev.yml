@@ -12,9 +12,10 @@ x-backend-environment: &backend-environment
   MANAGER_LEASE_TTL: 15s
   FAILURE_THRESHOLD: "3"
   SECURE_COOKIES: "false"
-  ENABLE_DEV_FAULTS: "true"
   ADMIN_LOGIN: admin
   ADMIN_PASSWORD: admin
+  FAULT_ACTUATOR_URL: http://fault-actuator:8090
+  FAULT_ACTUATOR_TOKEN: acervo-development-fault-token
 
 x-backend: &backend
   build:
@@ -37,6 +38,23 @@ x-cockroach: &cockroach
     - "8080"
 
 services:
+  fault-actuator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.actuator
+    restart: unless-stopped
+    environment:
+      PORT: "8090"
+      FAULT_ACTUATOR_MODE: docker
+      FAULT_ACTUATOR_TOKEN: acervo-development-fault-token
+      FAULT_ACTUATOR_CONTAINER: drive-clone-dev-fault-actuator-1
+      FAULT_ACTUATOR_TARGETS: >-
+        [{"node_id":"backend-node-1","component":"backend","docker_container":"drive-clone-dev-backend-node-1-1"},{"node_id":"backend-node-1","component":"sql","docker_container":"drive-clone-dev-cockroach-1-1"},{"node_id":"backend-node-1","component":"storage","docker_container":"drive-clone-dev-minio-1-1"},{"node_id":"backend-node-2","component":"backend","docker_container":"drive-clone-dev-backend-node-2-1"},{"node_id":"backend-node-2","component":"sql","docker_container":"drive-clone-dev-cockroach-2-1"},{"node_id":"backend-node-2","component":"storage","docker_container":"drive-clone-dev-minio-2-1"},{"node_id":"backend-node-3","component":"backend","docker_container":"drive-clone-dev-backend-node-3-1"},{"node_id":"backend-node-3","component":"sql","docker_container":"drive-clone-dev-cockroach-3-1"},{"node_id":"backend-node-3","component":"storage","docker_container":"drive-clone-dev-minio-3-1"}]
+    expose:
+      - "8090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
   load-balancer:
     build:
       context: .
