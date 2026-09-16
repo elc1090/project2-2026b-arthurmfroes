@@ -37,6 +37,18 @@ administrativo é provisionado pelo backend, não escolhido no cadastro.
 6. Selecione primeiro uma cópia de mesmo nome/tamanho com conteúdo alterado. Ela deve
    ser rejeitada. Selecione depois o original e confira a publicação e o download.
    Se todos os bytes já estavam preservados, a confirmação pode terminar sem reenvio.
+7. Durante outro envio, use o painel administrativo para pausar um nó. Se uma parte
+   precisar ser refeita, a barra não retrocede e a linha mostra
+   `Recuperando partes após falha de um node`; somente as partes ausentes são reenviadas.
+8. Em um arquivo concluído, escolha `Excluir` e confirme. Ele deve sair da listagem e
+   um novo download deve retornar não encontrado. Envie depois outro arquivo com o
+   mesmo nome para conferir que o espaço do diretório foi liberado.
+
+A confirmação de exclusão registra primeiro um tombstone e remove o catálogo ativo.
+Ela não espera todos os storages: o worker apaga depois cada chave e versão exatas.
+Um storage fora do ar conserva seu recibo pendente, e o cluster impede a readmissão
+daquela geração até concluir a limpeza. Por isso o desaparecimento imediato na tela
+comprova a exclusão lógica; a limpeza física precisa ser observada após o site voltar.
 
 Na passagem automatizada registrada, a interrupção foi feita por Playwright no PUT
 de uma parte. Isso testa o transporte do navegador; não é uma partição real entre

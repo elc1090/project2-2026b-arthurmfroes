@@ -72,10 +72,20 @@ em todos os sites obrigatórios da configuração vigente. Uma resposta MinIO ob
 por proxy de outro site não é prova de cópia local.
 
 Com a página aberta, falhas transitórias permitem consulta e repetição idempotente.
+Se a queda de um nó invalidar uma parte já contabilizada, a barra conserva o maior
+percentual exibido e a linha informa `Recuperando partes após falha de um node` enquanto
+reenvia somente as partes ausentes.
 Após reabrir e entrar, o backend recupera a fila. Se faltarem bytes, selecione o
 original novamente; o worker compara o conteúdo, não apenas nome e tamanho. Arquivos
 com bytes preservados podem concluir no backend com o navegador fechado. Downloads
 usam a transferência nativa do navegador, sem montar o arquivo inteiro em JavaScript.
+
+Arquivos publicados oferecem `Excluir`. Após a confirmação, a decisão permanente é
+gravada antes da resposta: o arquivo some da listagem, novos downloads são bloqueados
+e o mesmo nome pode ser usado de novo. A remoção das versões físicas ocorre em segundo
+plano por storage. Se um site estiver indisponível, o recibo fica pendente para nova
+tentativa e essa geração não é readmitida até a limpeza; um download que já abriu sua
+versão antes da exclusão pode terminar.
 
 ## Configuração e administração
 
