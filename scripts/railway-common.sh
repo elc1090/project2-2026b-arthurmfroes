@@ -70,7 +70,7 @@ choose_existing_project() {
   done
   IFS=$'\t' read -r RAILWAY_PROJECT_ID RAILWAY_PROJECT_NAME <<<"${entries[$((choice - 1))]}"
 
-  mapfile -t envs < <(jq -r --arg id "$RAILWAY_PROJECT_ID" '.[] | select(.id == $id) | .environments.edges[].node | select(.canAccess) | [.id, .name] | @tsv' <<<"$projects")
+  mapfile -t envs < <(jq -r --arg id "$RAILWAY_PROJECT_ID" '.[] | select(.id == $id) | .environments.edges[].node | select(.canAccess and .deletedAt == null) | [.id, .name] | @tsv' <<<"$projects")
   ((${#envs[@]} > 0)) || die "o projeto não possui ambiente acessível"
   if ((${#envs[@]} == 1)); then
     IFS=$'\t' read -r RAILWAY_ENVIRONMENT_ID env_name <<<"${envs[0]}"
@@ -93,7 +93,7 @@ choose_existing_project() {
 }
 
 choose_or_create_project() {
-  local choice name result
+  local choice name result status
   printf '\nOnde deseja implantar?\n  1) Criar projeto novo\n  2) Usar projeto existente\n'
   while true; do
     read -r -p "Escolha uma opção: " choice
@@ -102,11 +102,15 @@ choose_or_create_project() {
         name=$(prompt_nonempty "Nome do novo projeto: ")
         result=$(railway init --name "$name" --json)
         RAILWAY_PROJECT_ID=$(jq -r '.id // .projectId // empty' <<<"$result")
-        if [[ -z $RAILWAY_PROJECT_ID ]]; then
-          RAILWAY_PROJECT_ID=$(railway status --json | jq -r '.projectId')
-        fi
+        status=$(railway status --json)
+        RAILWAY_PROJECT_ID=${RAILWAY_PROJECT_ID:-$(jq -r '.id // .projectId // empty' <<<"$status")}
         RAILWAY_PROJECT_NAME=$name
-        RAILWAY_ENVIRONMENT_ID=$(railway status --json | jq -r '.environmentId')
+        RAILWAY_ENVIRONMENT_ID=$(jq -r '
+          .environmentId //
+          ([.environments.edges[].node | select(.deletedAt == null and .canAccess) | .id][0]) //
+          empty
+        ' <<<"$status")
+        [[ -n $RAILWAY_PROJECT_ID && -n $RAILWAY_ENVIRONMENT_ID ]] || die "o projeto foi criado, mas a CLI não informou o projeto ou ambiente vinculado"
         ok "projeto $name criado"
         return
         ;;
@@ -151,14 +155,18 @@ ensure_service() {
 }
 
 ensure_volume() {
-  local service=$1 mount=$2 sid
-  sid=$(service_id "$service")
+  local service=$1 mount=$2 sid existing_mount
   refresh_services
   if jq -e --arg service "$service" '.[] | select(.name == $service) | (.volumes // []) | length > 0' <<<"$SERVICES_JSON" >/dev/null; then
-    ok "volume de $service já existe"
+    existing_mount=$(jq -r --arg service "$service" '.[] | select(.name == $service) | .volumes[0].mountPath // empty' <<<"$SERVICES_JSON")
+    [[ $existing_mount == "$mount" ]] || die "o volume de $service está montado em ${existing_mount:-um caminho desconhecido}; esperado: $mount"
+    ok "volume de $service já existe em $mount"
   else
+    sid=$(service_id "$service")
+    [[ -n $sid ]] || die "serviço $service não encontrado para criar o volume"
     log "Criando volume de $service em $mount"
-    railway volume add --service "$sid" --mount-path "$mount" --json >/dev/null
+    railway service link "$sid" >/dev/null
+    railway volume add --mount-path "$mount" --json >/dev/null
     refresh_services
   fi
 }
@@ -258,7 +266,26 @@ node_services() {
 instance_id() {
   local service=$1 status
   status=$(railway status --json)
-  jq -r --arg service "$service" '.environments.edges[].node.serviceInstances.edges[].node | select(.serviceName == $service) | .id' <<<"$status" | head -n1
+  jq -r --arg environment "$RAILWAY_ENVIRONMENT_ID" --arg service "$service" '
+    .environments.edges[].node |
+    select(.id == $environment) |
+    .serviceInstances.edges[].node |
+    select(.serviceName == $service) |
+    .id
+  ' <<<"$status" | head -n1
+}
+
+wait_instance_id() {
+  local service=$1 attempt id
+  for attempt in {1..30}; do
+    id=$(instance_id "$service")
+    if [[ -n $id ]]; then
+      printf '%s' "$id"
+      return
+    fi
+    sleep 2
+  done
+  die "a instância Railway de $service não ficou disponível após 60 segundos"
 }
 
 configure_stack() {
@@ -300,10 +327,9 @@ configure_stack() {
     set_variable "backend-node-$i" FAULT_ACTUATOR_URL http://fault-actuator.railway.internal:8090
     set_variable "backend-node-$i" FAULT_ACTUATOR_TOKEN "$FAULT_ACTUATOR_TOKEN"
 
-    backend_instance=$(instance_id "backend-node-$i")
-    sql_instance=$(instance_id "cockroach-$i")
-    storage_instance=$(instance_id "minio-$i")
-    [[ -n $backend_instance && -n $sql_instance && -n $storage_instance ]] || die "Instance IDs do nó $i ainda não estão disponíveis"
+    backend_instance=$(wait_instance_id "backend-node-$i")
+    sql_instance=$(wait_instance_id "cockroach-$i")
+    storage_instance=$(wait_instance_id "minio-$i")
     targets=$(jq -c \
       --arg node "backend-node-$i" \
       --arg backend "$backend_instance" \
