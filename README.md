@@ -1,14 +1,173 @@
-# Acervo
+# Projeto: Aplicação com persistência de dados em backend
 
-Acervo é um projeto acadêmico de armazenamento distribuído de arquivos. A interface
-permite cadastro com login e senha, pastas e subpastas, seleção múltipla para upload,
-retomada de transferências e download. O painel administrativo acompanha os nós e
-permite demonstrar falhas sem assumir o controle automático do cluster.
+> 1. Leia com atenção as instruções abaixo para editar este README em formato Markdown.
+> 2. Substitua todos os trechos de texto iniciados com "Substitua" por informações do seu projeto, conforme solicitado em cada trecho.
+> 3. Substitua a imagem animada por um GIF/WEBP mostrando o resultado do seu projeto (o arquivo pode ser armazenado no repositório ou em URL externa). 
+> 4. Remova todas as instruções de entrega.
+> 5. Renomeie esta arquivo para README.md e entregue-o dentro da pasta raiz do seu repositório de entrega. 
+> 6. Double-check: Certifique-se de que seu README.md não contenha instruções de entrega e seja visualizado corretamente ao abrir seu repositório!
+> Opcional: você pode alterar a formatação deste README, mas mantenha todas as informações solicitadas.
 
-A aplicação usa React/TypeScript, Go, CockroachDB, MinIO e Nginx. Cada nó lógico tem
-backend, acesso ao seu banco local e armazenamento MinIO próprio. Os bancos formam
-um único cluster SQL; os storages possuem volumes independentes e cooperam por
-replicação. O gerenciador é eleito entre os backends por uma concessão no SQL.
+![Substitua a imagem ao lado por um GIF/WEBP animado mostrando seu projeto](./moho_follow_through2.gif "GIF animado do projeto. Imagem temporária de Moho Animation https://moho.lostmarble.com/products/moho-pro-special-halls-head-college")
+
+
+
+## Acesso
+
+https://load-balancer-production-ca4f.up.railway.app/
+
+## Desenvolvedor(a)
+Arthur Moro Fróes - Sistemas de informação
+
+
+## Proposta
+Modalidade onde um colega é um cliente
+
+A proposta consistiu em um clone do Google Drive, mas com arquitetura distribuída e uma maneira didática de visualizar esses conceitos.
+
+### Funcionalidades previstas:
+- Cadastro e autenticação de usuários.
+- Upload e download de arquivos.
+- Suporte a pastas e subpastas.
+- Arquitetura distribuída com múltiplas réplicas de backend.
+- Sincronização e consistência dos arquivos entre as réplicas.
+- Resiliência à indisponibilidade de uma réplica.
+- Visualização simples do estado dos backends para fins de demonstração.
+- Mecanismo simples para simular falhas em uma ou mais réplicas.
+
+## Parceria/cliente/usuário
+Fabrício Thomas Freitas Santos
+
+## Feedback/comentário da parceria/cliente/usuário
+A proposta e desenvolvimento se alinham com o que foi esperado pelo projeto
+
+## Desenvolvimento
+
+### Processo
+
+A ideia do projeto era aprender principalmente duas coisas: colocar a mão na massa em sistemas distribuídos, que eu não tinha quase experiência prática e também conhecer frameworks de desenvolvimento com IA, nesse caso o OpenSpec. Julgo que foi um sucesso, porque consegui aprender um pouco sobre ambos.
+
+Comecei o desenvolvimento procurando e entendendo os frameworks disponíveis no mercado e comumente usados. Para propósitos da disciplina, cheguei a conclusão que o OpenSpec se alinhava melhor. Depois de escolhido, comecei o processo de idealização da proposta e a transcrição disso em specs criadas. A ideia do framework é sair de uma ideia não necessariamente técnica, mas não gosto muito dessa abordagem. Tinha em mente uma idéia prévia do projeto, então começamos daí. Com as specs escritas, deleguei a construção para os agentes de codigo que tenho acesso (família gpt). Foram necessários ajustes depois das primeiras entregas, através de iterações com o próprio agente. Gostei bastante do framework, resolvi também utilizar ele no trabalho como uma alternativa ao framework personalizado que utilizamos na empresa e os resultados foram satisfatórios. 
+
+As partes mais difíceis foram:
+
+- Entender como se faz a distribuição do sistema sem criar complexidade desnecessária
+- Entender a comunicação entre os nós e a escolha de gerentes
+- Implementar de maneira consistente a infraestrutura tanto em modo de desenvolvimento quanto em produção. O railway facilitou muito nisso, mas ainda assim foi um processo chato
+
+Me sinto mais pronto pra criar e manter sistemas desse tipo no futuro, mas definitivamente não é simples.
+
+### Trechos de código
+
+#### Simulação de uma falha real de processo
+
+O painel administrativo envia a solicitação ao `fault-actuator`, que acessa o serviço correspondente por SSH. Dentro do container, o comando `fault-signal` envia `SIGSTOP` ou `SIGCONT` para todo o grupo de processos da aplicação:
+
+```go
+switch args[0] {
+case "stop":
+    if err := signal(-workload.pgrp, syscall.SIGSTOP); err != nil {
+        fmt.Fprintln(stderr, "could not stop workload process group")
+        return 1
+    }
+    if err := waitForState(root, true); err != nil {
+        fmt.Fprintln(stderr, "workload stop was not confirmed")
+        return 1
+    }
+    fmt.Fprintln(stdout, "stopped")
+case "restore":
+    if err := signal(-workload.pgrp, syscall.SIGCONT); err != nil {
+        fmt.Fprintln(stderr, "could not restore workload process group")
+        return 1
+    }
+    if err := waitForState(root, false); err != nil {
+        fmt.Fprintln(stderr, "workload restore was not confirmed")
+        return 1
+    }
+    fmt.Fprintln(stdout, "running")
+}
+```
+
+O PID negativo faz o sinal atingir o grupo inteiro. O processo não recebe uma chamada da aplicação para se desligar e não avisa o cluster antes de parar. Isso permite observar a detecção da falha, uma nova eleição quando necessário, a retirada da rota e a posterior sincronização. O código completo está em [`backend/cmd/fault-signal/main.go`](backend/cmd/fault-signal/main.go).
+
+#### Estado atual dos nós e configuração publicada
+
+Cada backend consulta no CockroachDB a configuração atual considerada válida pelo sistema. A consulta traz o estado observado de todos os nós e informa quais deles pertencem à composição vigente:
+
+```go
+rows, err := tx.Query(ctx, `SELECT
+    n.id::STRING,
+    n.node_id,
+    n.backend_endpoint,
+    n.database_endpoint,
+    n.storage_endpoint,
+    n.storage_generation::STRING,   
+    n.state,
+    m.node_id IS NOT NULL
+FROM cluster_nodes n
+LEFT JOIN cluster_membership m ON n.id=m.node_id
+ORDER BY n.node_id`)
+
+for rows.Next() {
+    var n cluster.Node
+    var member bool
+    if err := rows.Scan(&n.ID, &n.NodeID, &n.BackendEndpoint,
+        &n.DatabaseEndpoint, &n.StorageEndpoint,
+        &n.StorageGeneration, &n.State, &member); err != nil {
+        return err
+    }
+    result.Nodes = append(result.Nodes, n)
+    if member {
+        result.Configuration.Members = append(result.Configuration.Members, n)
+    }
+}
+```
+
+A consulta devolve uma linha para cada nó registrado. Em cada repetição, `n` representa o nó lido naquela linha. O primeiro `append` adiciona esse nó à lista `Nodes`, que reúne todos os nós, inclusive os que estão entrando, sincronizando, indisponíveis ou retirados. Se `member` for verdadeiro, o segundo `append` também adiciona o mesmo nó à lista `Configuration.Members`, que contém somente os nós admitidos para receber tráfego. Portanto, o laço monta as duas listas para a resposta de `/internal/cluster`; ele não altera o banco nem adiciona apenas o próprio backend. Antes de devolver essa resposta, o backend confirma que existe um gerenciador eleito e que o prazo da autoridade dele ainda não expirou. Esse mecanismo está em [`backend/internal/control/http.go`](backend/internal/control/http.go).
+
+#### Atualização automática das rotas do load balancer
+
+O load balancer consulta o endpoint interno de controle dos backends e aceita somente uma configuração com versão e prazo válidos:
+
+```python
+request = urllib.request.Request(
+    raw.rstrip("/") + "/internal/cluster",
+    headers={
+        "Authorization": "Bearer " + self.token,
+        "Cache-Control": "no-cache",
+    },
+)
+
+version, ttl, backends = snapshot(data)
+expires = started + min(ttl, self.max_stale)
+if (
+    expires <= self.clock()
+    or version < self.version
+    or (version == self.version and backends != self.backends)
+):
+    continue
+
+self.version, self.backends, self.deadline = version, backends, expires
+self.revoked = False
+return backends
+```
+
+O Nginx não procura diretamente qual backend é o gerenciador. Ele pode consultar qualquer backend saudável, pois todos leem o mesmo estado no CockroachDB. A resposta só é válida enquanto existe um gerenciador eleito com autoridade vigente. Se o prazo expira sem uma nova configuração, o reconciliador remove as rotas em vez de continuar usando uma composição antiga. O código está em [`nginx/reconcile.py`](nginx/reconcile.py).
+
+
+## Tecnologias
+
+### Linguagens e afins
+
+- Golang
+- Minio
+- CockroachDB
+- Nginx
+
+### Ambiente de desenvolvimento
+
+- VsCode
+- Codex CLI
 
 ## Executar em desenvolvimento
 
@@ -31,115 +190,8 @@ a conta administrativa acadêmica `admin` / `admin`. As credenciais locais e o
 Cockroach em modo inseguro pertencem a esse ambiente de desenvolvimento. Não há
 configuração de implantação em produção nesta versão.
 
-```sh
-docker compose -f docker-compose.dev.yml ps -a
-docker compose -f docker-compose.dev.yml logs --tail=100 backend-node-1 load-balancer
-docker compose -f docker-compose.dev.yml stop
-```
 
-O último comando para os serviços preservando os volumes. A inicialização pode
-levar algum tempo: um processo vivo ainda não está necessariamente admitido para
-atender usuários. A entrada retorna 503 quando não dispõe de nós elegíveis.
-
-| Serviço local | Portas |
-| --- | --- |
-| Interface e API via Nginx | 8080 |
-| Cockroach SQL, nós 1/2/3 | 26257 / 26258 / 26259 |
-| Painéis Cockroach, nós 1/2/3 | 8088 / 8089 / 8090 |
-| APIs MinIO, nós 1/2/3 | 9000 / 9010 / 9020 |
-| Consoles MinIO, nós 1/2/3 | 9001 / 9011 / 9021 |
-
-O Compose fixa três nós para a demonstração local. Cada backend usa o Cockroach e
-MinIO correspondentes; o Nginx recebe do gerenciador a composição elegível. O nome
-interno do projeto Compose continua `drive-clone-dev`, o banco `drive_clone` e o
-bucket `drive-clone`, preservando a configuração dos volumes existentes.
-
-O atuador fica acessível somente na rede do Compose e é o único serviço que monta
-`/var/run/docker.sock`. Os botões administrativos pedem que ele pause ou retome o
-container cadastrado. O gerenciador não recebe essa intenção: detecta a ausência
-pelas sondagens, altera a composição e o Nginx publica as novas rotas.
-
-## Transferências e consistência
-
-O seletor aceita vários arquivos, de qualquer tipo, inclusive vazios. A interface
-prepara SHA-256 completo e manifesto incremental em um worker, lendo partes de
-32 MiB. A fila inteira permite dois envios de partes simultâneos. O limite de 100M
-no Nginx se aplica a cada requisição; não é um limite do tamanho total do arquivo.
-
-`Enviando`, `Confirmando armazenamento` e `Concluído` são estados distintos. Receber
-todos os bytes não publica o arquivo: a publicação exige recibos de conteúdo idêntico
-em todos os sites obrigatórios da configuração vigente. Uma resposta MinIO obtida
-por proxy de outro site não é prova de cópia local.
-
-Com a página aberta, falhas transitórias permitem consulta e repetição idempotente.
-Se a queda de um nó invalidar uma parte já contabilizada, a barra conserva o maior
-percentual exibido e a linha informa `Recuperando partes após falha de um node` enquanto
-reenvia somente as partes ausentes.
-Após reabrir e entrar, o backend recupera a fila. Se faltarem bytes, selecione o
-original novamente; o worker compara o conteúdo, não apenas nome e tamanho. Arquivos
-com bytes preservados podem concluir no backend com o navegador fechado. Downloads
-usam a transferência nativa do navegador, sem montar o arquivo inteiro em JavaScript.
-
-Arquivos publicados oferecem `Excluir`. Após a confirmação, a decisão permanente é
-gravada antes da resposta: o arquivo some da listagem, novos downloads são bloqueados
-e o mesmo nome pode ser usado de novo. A remoção enumera em segundo plano todas as
-versões da chave final exata em cada storage, inclusive versões órfãs sem recibo SQL.
-Se um site estiver indisponível, o recibo fica pendente para nova
-tentativa e essa geração não é readmitida até a limpeza; um download que já abriu sua
-versão antes da exclusão pode terminar.
-
-## Configuração e administração
-
-As variáveis do backend estão descritas em [docs/demo.md](docs/demo.md). Os três nós
-iniciais usam `NODE_BOOTSTRAP=true`; um nó adicional já provisionado usa `false` e
-aguarda registro administrativo. O formulário recebe endpoints genéricos, não cria
-máquinas e não exige configuração de provedor específico.
-
-`ADMIN_PROFILES_FILE` aponta para perfis administrativos privados do servidor.
-Credenciais não são informadas no painel. Associação, retirada e recuperação têm
-etapas persistidas; concluir a associação não substitui a sincronização necessária
-para admissão. Falhas temporárias removem o nó automaticamente do atendimento, sem
-apagar volumes. Retomar o container não promove o nó diretamente para `ready`:
-saúde, sincronização e readmissão continuam sob responsabilidade do cluster.
-
-## Verificações e roteiro
-
-Para validar o código local, com Go compatível com `backend/go.mod`, Node compatível
-com Vite e Python 3:
-
-```sh
-(cd backend && go test ./...)
-npm --prefix frontend ci
-npm --prefix frontend test
-npm --prefix frontend run build
-python3 -m unittest discover -s nginx -p 'test_*.py'
-openspec validate implement-distributed-drive --strict
-```
-
-Testes dependentes de SQL, S3 ou Docker precisam de seu ambiente de integração;
-um teste pulado não comprova comportamento distribuído.
-
-As evidências registradas incluem [bootstrap e persistência MinIO](docs/infrastructure-verification.md),
-[prova e configuração Railway](docs/railway-deployment.md),
-[a primeira passagem pelo navegador](frontend/verification/browser-first-pass.md)
-e [publicação e retomada](frontend/verification/browser-resume-and-faults.md).
-A segunda passagem verificou download de 34 MiB com SHA-256 idêntico, rejeição de
-arquivo reselecionado divergente, erro isolado e sucessão do gerenciador pelo painel.
-
-O [roteiro de demonstração](docs/demo.md) distingue essas evidências das verificações
-pendentes. A associação, troca de volume e retirada de um quarto nó foram verificadas.
-A suíte de falhas passou em 20 cenários, com publicação e download pelos
-sobreviventes. A fase de partições reais passou, incluindo sucessão e perda de quorum.
-A [retomada multiparte após reabertura](frontend/verification/browser-recovery-fresh-result.md)
-preservou a parte já enviada e verificou os downloads. Também
-passaram os [downloads interrompidos sem autoridade](docs/authority-loss-verification.md)
-e a [transferência de 256 MiB com medição de memória](frontend/verification/memory-256-result.md),
-com SHA-256 conferido em cada MinIO isolado. A [queda do worker durante cópia](scripts/worker-recovery-test.md) e a
-[publicação durante sincronização](docs/publication-during-sync-verification.md)
-foram comprovadas, incluindo integridade física por site. A comparação com 2 GiB
-permanece pendente.
-**2 GiB é referência de teste, não teto de arquivo.** O teste real desse tamanho
-está programado após as provas de recuperação; o espaço necessário foi liberado.
+## Executar em produção
 
 O primeiro deploy completo no Railway pode ser conduzido pelo roteiro interativo:
 
@@ -152,14 +204,3 @@ Para adicionar e acompanhar a admissão de outro nó sem usar o painel do proved
 ```sh
 ./scripts/add-railway-node.sh
 ```
-
-O [script de desenvolvimento](docs/dev-entrypoint-verification-plan.md) foi executado
-com os defaults do Compose. Subida, reinício, sessão compartilhada e persistência
-do arquivo passaram pelos três backends e pelo Nginx.
-
-A [prova do atuador real](docs/fault-control-verification.md) registra pausa de
-storage, nó completo e gerenciador, sucessão por expiração do lease e publicação
-de upload pelos sobreviventes com checksum idêntico após a readmissão.
-
-Requisitos e tarefas ficam em [OpenSpec](openspec/changes/add-real-fault-control-and-cluster-diagram/).
-A política de agentes e worktrees fica em [docs/development-workflow.md](docs/development-workflow.md).
