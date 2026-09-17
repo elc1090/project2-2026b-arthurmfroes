@@ -37,6 +37,7 @@ configure_stack "$NEW_INDEX"
 
 deploy_service "cockroach-$NEW_INDEX"
 deploy_service "minio-$NEW_INDEX"
+initialize_storage "$NEW_INDEX"
 deploy_service fault-actuator backend
 deploy_service "backend-node-$NEW_INDEX"
 deploy_service load-balancer

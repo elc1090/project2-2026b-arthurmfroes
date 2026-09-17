@@ -419,13 +419,40 @@ initialize_database() {
   ok "banco drive_clone disponível"
 }
 
+initialize_storage() {
+  local count=$1
+  log "Configurando replicação e bucket nos $count sites MinIO"
+  railway ssh --service minio-1 -- /bin/sh -s -- "$count" < "$PROJECT_ROOT/minio/init-railway.sh"
+  ok "sites MinIO configurados"
+}
+
+wait_cluster_admission() {
+  local count=$1 attempt output ready
+  log "Aguardando a eleição do gerenciador e a admissão dos $count nós"
+  for attempt in {1..120}; do
+    output=$(railway ssh --service cockroach-1 -- /cockroach/cockroach sql --insecure --host=localhost:26257 --database=drive_clone --format=tsv --execute="SELECT n.node_id,n.state,(m.node_id IS NOT NULL) FROM cluster_nodes n LEFT JOIN cluster_membership m ON m.node_id=n.id WHERE n.node_id ~ '^backend-node-[0-9]+$' ORDER BY n.node_id" 2>/dev/null || true)
+    ready=$(awk -F $'\t' '$2 == "ready" && ($3 == "true" || $3 == "t") {count++} END {print count+0}' <<<"$output")
+    if [[ $ready -eq $count ]]; then
+      ok "$count nós admitidos"
+      return
+    fi
+    if ((attempt % 10 == 0)); then
+      printf '  %d/%d nós prontos\n' "$ready" "$count"
+    fi
+    sleep 3
+  done
+  die "o cluster não admitiu os $count nós em 6 minutos; consulte os logs dos backends"
+}
+
 deploy_full_stack() {
   local count=$1 i
   for ((i=1; i<=count; i++)); do deploy_service "cockroach-$i"; done
   initialize_database
   for ((i=1; i<=count; i++)); do deploy_service "minio-$i"; done
+  initialize_storage "$count"
   deploy_service fault-actuator backend
   for ((i=1; i<=count; i++)); do deploy_service "backend-node-$i"; done
+  wait_cluster_admission "$count"
   deploy_service load-balancer
 }
 

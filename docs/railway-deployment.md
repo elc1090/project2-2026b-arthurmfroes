@@ -10,7 +10,9 @@ O primeiro deploy pode ser feito sem configurar serviços pelo painel:
 
 O roteiro autentica a CLI, permite criar um projeto ou escolher um existente,
 pergunta a quantidade de nós, cria serviços e volumes, configura segredos e rede
-privada, implanta a topologia, inicializa o CockroachDB e imprime o domínio público.
+privada, implanta a topologia, inicializa o CockroachDB, forma a replicação entre os
+sites MinIO e cria o bucket versionado. O domínio público só é impresso depois da
+eleição do gerenciador e da admissão de todos os nós.
 Ele pode ser executado novamente depois de uma interrupção: serviços, volumes e
 segredos existentes são reaproveitados.
 
