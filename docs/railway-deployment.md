@@ -1,5 +1,33 @@
 # Implantação e falhas reais no Railway
 
+## Roteiros interativos
+
+O primeiro deploy pode ser feito sem configurar serviços pelo painel:
+
+```bash
+./scripts/setup-railway.sh
+```
+
+O roteiro autentica a CLI, permite criar um projeto ou escolher um existente,
+pergunta a quantidade de nós, cria serviços e volumes, configura segredos e rede
+privada, implanta a topologia, inicializa o CockroachDB e imprime o domínio público.
+Ele pode ser executado novamente depois de uma interrupção: serviços, volumes e
+segredos existentes são reaproveitados.
+
+Para demonstrar a entrada de um nó novo em um projeto já implantado:
+
+```bash
+./scripts/add-railway-node.sh
+```
+
+O segundo roteiro cria o próximo trio de serviços, atualiza os participantes do
+CockroachDB, os alvos do atuador e as rotas conhecidas pelo load balancer. Ao final,
+consulta o estado compartilhado até mostrar o nó sincronizado e `ready`.
+
+Os únicos arquivos locais gerados ficam em `.railway-local/`, ignorado pelo Git e
+com permissões restritas, e em `~/.ssh/acervo_railway_*`. A fingerprint apresentada
+por `ssh.railway.com` exige confirmação no terminal.
+
 ## Topologia
 
 A implantação completa usa serviços separados para que uma falha de componente não
@@ -9,9 +37,9 @@ derrube recursos do mesmo container:
 | --- | ---: | --- |
 | Entrada Nginx | 1 | `nginx/Dockerfile` |
 | Atuador de falhas | 1 | `backend/Dockerfile.actuator` |
-| Backend | 3 | `railway/Dockerfile.backend` |
-| CockroachDB | 3 | `railway/Dockerfile.cockroach` |
-| MinIO | 3 | `railway/Dockerfile.minio` |
+| Backend | N | `railway/Dockerfile.backend` |
+| CockroachDB | N | `railway/Dockerfile.cockroach` |
+| MinIO | N | `railway/Dockerfile.minio` |
 
 Os Dockerfiles Railway executam `tini` como PID 1. O workload fica num único grupo
 filho e `/usr/local/bin/fault-signal` interrompe ou retoma esse grupo. O helper não
@@ -25,12 +53,17 @@ conta Railway. A CLI é usada nessa preparação, fora do serviço implantado:
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/acervo_railway_fault -C acervo-railway-fault
-railway ssh keys add --key "$(ssh-keygen -lf ~/.ssh/acervo_railway_fault.pub | awk '{print $2}')" --name acervo-fault-actuator
+railway ssh keys add --key ~/.ssh/acervo_railway_fault.pub --name acervo-fault-actuator
 ```
 
-Copie no painel o **Service Instance ID** de cada backend, CockroachDB e MinIO. O
-Service ID e o Deployment Instance ID são identificadores diferentes e não servem
-como usuário de `ssh.railway.com`.
+Os roteiros obtêm pela CLI o **Service Instance ID** de cada backend, CockroachDB e
+MinIO. O Service ID e o Deployment Instance ID são identificadores diferentes e não
+servem como usuário de `ssh.railway.com`. Para conferir os valores manualmente:
+
+```bash
+railway status --json | jq -r \
+  '.environments.edges[].node.serviceInstances.edges[].node | [.serviceName,.id] | @tsv'
+```
 
 A Railway não publica uma lista autoritativa e estável das host keys do gateway.
 Faça o bootstrap numa rede controlada, confira as fingerprints observadas e guarde

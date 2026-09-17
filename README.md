@@ -141,6 +141,18 @@ permanece pendente.
 **2 GiB é referência de teste, não teto de arquivo.** O teste real desse tamanho
 está programado após as provas de recuperação; o espaço necessário foi liberado.
 
+O primeiro deploy completo no Railway pode ser conduzido pelo roteiro interativo:
+
+```sh
+./scripts/setup-railway.sh
+```
+
+Para adicionar e acompanhar a admissão de outro nó sem usar o painel do provedor:
+
+```sh
+./scripts/add-railway-node.sh
+```
+
 O [script de desenvolvimento](docs/dev-entrypoint-verification-plan.md) foi executado
 com os defaults do Compose. Subida, reinício, sessão compartilhada e persistência
 do arquivo passaram pelos três backends e pelo Nginx.

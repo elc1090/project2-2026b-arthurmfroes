@@ -16,6 +16,7 @@ frontend/.env.local
 # Ambiente e segredos
 .env
 *.pem
+.railway-local/
 
 # IDEs e SO
 .DS_Store
