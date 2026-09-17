@@ -155,20 +155,34 @@ ensure_service() {
 }
 
 ensure_volume() {
-  local service=$1 mount=$2 sid existing_mount
-  refresh_services
-  if jq -e --arg service "$service" '.[] | select(.name == $service) | (.volumes // []) | length > 0' <<<"$SERVICES_JSON" >/dev/null; then
-    existing_mount=$(jq -r --arg service "$service" '.[] | select(.name == $service) | .volumes[0].mountPath // empty' <<<"$SERVICES_JSON")
-    [[ $existing_mount == "$mount" ]] || die "o volume de $service está montado em ${existing_mount:-um caminho desconhecido}; esperado: $mount"
-    ok "volume de $service já existe em $mount"
-  else
+  local service=$1 mount=$2 sid existing_mount output attempt
+  log "Garantindo volume de $service em $mount"
+  for attempt in {1..6}; do
+    refresh_services
+    if jq -e --arg service "$service" '.[] | select(.name == $service) | (.volumes // []) | length > 0' <<<"$SERVICES_JSON" >/dev/null; then
+      existing_mount=$(jq -r --arg service "$service" '.[] | select(.name == $service) | .volumes[0].mountPath // empty' <<<"$SERVICES_JSON")
+      [[ $existing_mount == "$mount" ]] || die "o volume de $service está montado em ${existing_mount:-um caminho desconhecido}; esperado: $mount"
+      ok "volume de $service já existe em $mount"
+      return
+    fi
+
     sid=$(service_id "$service")
     [[ -n $sid ]] || die "serviço $service não encontrado para criar o volume"
-    log "Criando volume de $service em $mount"
     railway service link "$sid" >/dev/null
-    railway volume add --mount-path "$mount" --json >/dev/null
-    refresh_services
-  fi
+    if output=$(railway volume add --mount-path "$mount" --json 2>&1); then
+      ok "volume de $service criado em $mount"
+      sleep 3
+      return
+    fi
+
+    if [[ ${output,,} =~ (too[[:space:]]+quickly|too[[:space:]]+many[[:space:]]+requests|rate.?limit|429) && $attempt -lt 6 ]]; then
+      warn "Railway limitou a criação do volume de $service; nova tentativa em 5 segundos ($attempt/6)"
+      sleep 5
+      continue
+    fi
+    printf '%s\n' "$output" >&2
+    die "não foi possível criar o volume de $service"
+  done
 }
 
 load_or_create_secrets() {
