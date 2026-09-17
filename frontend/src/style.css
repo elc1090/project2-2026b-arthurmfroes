@@ -881,6 +881,92 @@ aside nav button {
   font-size: 11px;
   white-space: nowrap;
 }
+.leader-election {
+  margin-top: 22px;
+  padding: 18px;
+  border: 1px solid #cddfd3;
+  border-radius: 12px;
+  background: white;
+}
+.leader-election.electing {
+  border-color: #dca66f;
+  background: #fff9ee;
+}
+.election-summary {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.election-summary h3 {
+  margin: 3px 0 5px;
+  font-size: 15px;
+}
+.election-summary p:last-child {
+  margin: 0;
+  color: #68796d;
+  font-size: 11px;
+}
+.election-pulse {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #3f805d;
+  box-shadow: 0 0 0 5px #dcecdf;
+}
+.electing .election-pulse {
+  background: #bd702f;
+  box-shadow: 0 0 0 5px #f6e4c8;
+  animation: election-pulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes election-pulse {
+  to { box-shadow: 0 0 0 9px #f6e4c866; }
+}
+.election-candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+.election-candidates > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  color: #65756a;
+  background: #f0f4ee;
+  font-size: 10px;
+}
+.election-candidates .leader { color: #1f5945; background: #dfeee3; }
+.election-candidates .ineligible { color: #8a7568; background: #f3eee9; }
+.election-candidates small { font-size: 9px; }
+.election-history {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e4ebe2;
+  color: #68796d;
+  font-size: 10px;
+}
+.election-history > span { margin-left: 8px; }
+.election-history ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 9px 0 0;
+  padding: 0;
+}
+.election-history li {
+  display: grid;
+  gap: 2px;
+  min-width: 115px;
+  padding: 8px;
+  border-left: 3px solid #6f987e;
+  background: #f5f7f3;
+}
+.election-history time { color: #879288; }
 .load-balancer {
   width: min(280px, 80%);
   margin: 30px auto 0;
@@ -1016,6 +1102,18 @@ aside nav button {
   color: #6d7e70;
   font-size: 10px;
 }
+.sync-progress {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -5px 0 12px;
+  padding: 8px;
+  border-radius: 6px;
+  color: #765d21;
+  background: #fff2cc;
+  font-size: 9px;
+}
+.sync-progress strong { white-space: nowrap; }
 .component-stack {
   display: grid;
   gap: 6px;
@@ -1192,4 +1290,5 @@ aside nav button {
   .diagram-nodes { grid-template-columns: 1fr; }
   .route-line { margin-left: 20px; }
   .technical-details dl { grid-template-columns: 1fr; }
+  .election-candidates { grid-template-columns: 1fr; }
 }

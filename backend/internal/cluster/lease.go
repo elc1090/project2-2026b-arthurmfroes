@@ -27,6 +27,11 @@ func (s *Store) AcquireLease(ctx context.Context, holder string, ttl time.Durati
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNoAuthority
 		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO cluster_events(node_id,configuration_version,manager_term,kind)
+   SELECT $1,version,$2,'manager_elected' FROM cluster_configuration WHERE singleton=true`, holder, lease.Term)
 		return err
 	})
 	if err != nil {

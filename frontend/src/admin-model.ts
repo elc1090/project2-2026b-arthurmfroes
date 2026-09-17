@@ -136,6 +136,16 @@ export function leaseCurrent(view: AdminView, elapsed: number): boolean {
       Date.parse(view.observed_at) + Math.max(0, elapsed)
   );
 }
+export function leaseRemainingSeconds(
+  view: AdminView,
+  elapsed: number,
+): number {
+  if (!view.lease_expires_at) return 0;
+  const remaining =
+    Date.parse(view.lease_expires_at) -
+    (Date.parse(view.observed_at) + Math.max(0, elapsed));
+  return Number.isFinite(remaining) ? Math.max(0, Math.ceil(remaining / 1000)) : 0;
+}
 export function reasonLabel(reason: string | null): string {
   if (!reason) return "Nenhum motivo registrado";
   const reasons: Record<string, string> = {
@@ -172,6 +182,61 @@ export type IncidentStep = {
   complete: boolean;
   detail: string;
 };
+
+export function nodeLifecycleSteps(
+  node: AdminNode,
+  publicationGeneration: number,
+  events: AdminEvent[] = [],
+): IncidentStep[] {
+  const nodeEvents = events.filter(
+    (event) => event.node_id === node.id || event.node_id === node.node_id,
+  );
+  const sync = nodeEvents.find((event) => event.kind === "node_sync_started");
+  const admitted = nodeEvents.find((event) => event.kind === "node_admitted");
+  const health = node.health as Record<string, unknown> | null;
+  const healthy =
+    !!health &&
+    ["backend", "control", "sql", "storage"].every(
+      (component) => health[component] === true,
+    );
+  const synchronized =
+    node.state === "ready" && node.synced_generation >= publicationGeneration;
+  return [
+    {
+      id: "registered",
+      label: "Nó registrado",
+      complete: true,
+      detail: "Identidade e endpoints conhecidos pelo cluster",
+    },
+    {
+      id: "health-checked",
+      label: "Componentes verificados",
+      complete: healthy,
+      detail: healthy ? "Backend, controle, banco e storage respondem" : "Aguardando saúde completa",
+    },
+    {
+      id: "node-synchronization",
+      label: "Publicações sincronizadas",
+      complete: synchronized,
+      detail: synchronized
+        ? `Geração ${node.synced_generation} confirmada`
+        : node.state === "syncing" || sync
+          ? `Sincronizando geração ${node.synced_generation} de ${publicationGeneration}`
+          : `Aguardando sincronização até a geração ${publicationGeneration}`,
+    },
+    {
+      id: "node-readmitted",
+      label: "Nó readmitido na rota",
+      complete: node.state === "ready" && node.routed,
+      detail:
+        node.state === "ready" && node.routed
+          ? admitted
+            ? `Admissão confirmada no mandato ${admitted.manager_term}`
+            : "Nó pronto e recebendo tráfego"
+          : "Aguardando decisão do gerenciador",
+    },
+  ];
+}
 
 function actionCompleted(action: FaultAction | undefined): boolean {
   return !!action && ["stopped", "restored"].includes(action.status);

@@ -2,6 +2,9 @@ import {
   componentNames,
   componentState,
   incidentSteps,
+  leaseCurrent,
+  leaseRemainingSeconds,
+  nodeLifecycleSteps,
   nodeStates,
   observationAge,
   observationLabel,
@@ -12,6 +15,77 @@ import {
 
 const date = (value: string | null) =>
   value ? new Date(value).toLocaleString("pt-BR") : "Não informado";
+
+function nodeName(view: AdminView, id: string | null): string {
+  return view.nodes.find((node) => node.id === id)?.node_id || "desconhecido";
+}
+
+export function LeaderElection({
+  view,
+  elapsed,
+}: {
+  view: AdminView;
+  elapsed: number;
+}) {
+  const active = leaseCurrent(view, elapsed);
+  const remaining = leaseRemainingSeconds(view, elapsed);
+  const elections = view.events
+    .filter((event) => ["manager_elected", "manager_acquired"].includes(event.kind))
+    .slice(0, 4)
+    .reverse();
+  return (
+    <section
+      className={`leader-election ${active ? "active" : "electing"}`}
+      aria-live="polite"
+      aria-label="Eleição do gerenciador"
+    >
+      <div className="election-summary">
+        <span className="election-pulse" aria-hidden="true" />
+        <div>
+          <p className="eyebrow">Coordenação do cluster</p>
+          <h3>
+            {active
+              ? `Mandato ${view.manager_term}: ${nodeName(view, view.manager_id)} é o gerenciador`
+              : `Mandato ${view.manager_term} expirou: eleição em andamento`}
+          </h3>
+          <p>
+            {active
+              ? `Concessão válida por mais ${remaining} s. Os demais backends aguardam sem alterar o mandato.`
+              : `O último titular foi ${nodeName(view, view.manager_id)}. Um backend saudável precisa adquirir a concessão para abrir o próximo mandato.`}
+          </p>
+        </div>
+      </div>
+      <div className="election-candidates" aria-label="Situação dos candidatos">
+        {view.nodes.map((node) => {
+          const leader = active && node.id === view.manager_id;
+          const candidate = node.state === "ready" && node.routed;
+          return (
+            <span className={leader ? "leader" : candidate ? "candidate" : "ineligible"} key={node.id}>
+              <strong>{node.node_id}</strong>
+              <small>{leader ? "Gerenciador" : candidate ? "Em espera" : "Fora da disputa"}</small>
+            </span>
+          );
+        })}
+      </div>
+      <div className="election-history">
+        <strong>Mandatos observados</strong>
+        {elections.length === 0 ? (
+          <span>O histórico começa na próxima aquisição de liderança.</span>
+        ) : (
+          <ol>
+            {elections.map((event) => (
+              <li key={event.id}>
+                <span>Mandato {event.manager_term}</span>
+                <strong>{nodeName(view, event.node_id)}</strong>
+                <time>{new Date(event.at).toLocaleTimeString("pt-BR")}</time>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function healthClass(node: AdminNode, component: string): string {
   const state = componentState(node.health, component);
@@ -45,6 +119,7 @@ export function ClusterDiagram({
           {routed} {routed === 1 ? "nó na rota" : "nós na rota"}
         </span>
       </div>
+      <LeaderElection view={view} elapsed={elapsed} />
       <div className="load-balancer" aria-label={`Load balancer, ${routed} nós ativos`}>
         <span>Entrada</span>
         <strong>Load balancer</strong>
@@ -78,7 +153,7 @@ export function ClusterDiagram({
               >
                 <span className="node-title">
                   <strong>{node.node_id}</strong>
-                  {node.id === view.manager_id && (
+                  {leaseCurrent(view, elapsed) && node.id === view.manager_id && (
                     <span className="manager-badge">Gerenciador</span>
                   )}
                 </span>
@@ -87,6 +162,16 @@ export function ClusterDiagram({
                     ? "Informação desatualizada"
                     : nodeStates[node.state] || "Estado desconhecido"}
                 </span>
+                {(node.state === "joining" || node.state === "syncing") && (
+                  <span className="sync-progress" role="status">
+                    <span>
+                      {node.state === "joining" ? "Preparando sincronização" : "Sincronizando publicações"}
+                    </span>
+                    <strong>
+                      geração {node.synced_generation} de {view.publication_generation}
+                    </strong>
+                  </span>
+                )}
                 <span className="component-stack">
                   {Object.entries(componentNames).map(([key, label]) => (
                     <span className="component-row" key={key}>
@@ -124,6 +209,11 @@ export function NodeIncident({
     view.publication_generation,
     view.events,
   );
+  const lifecycle = nodeLifecycleSteps(
+    node,
+    view.publication_generation,
+    view.events,
+  );
   return (
     <section className="node-inspector" aria-labelledby="selected-node-title">
       <div className="inspector-heading">
@@ -136,7 +226,21 @@ export function NodeIncident({
         </span>
       </div>
       <p>{reasonLabel(node.reason)}</p>
-      <h3>O que está acontecendo</h3>
+      <h3>Ciclo de entrada e recuperação</h3>
+      <ol className="incident-steps lifecycle-steps">
+        {lifecycle.map((step) => (
+          <li className={step.complete ? "complete" : "pending"} key={step.id}>
+            <span className="step-mark" aria-hidden="true">
+              {step.complete ? "✓" : "·"}
+            </span>
+            <span>
+              <strong>{step.label}</strong>
+              <small>{step.detail}</small>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <h3>Resposta à falha provocada</h3>
       {steps.length === 0 ? (
         <p className="admin-empty">
           Nenhuma ação de infraestrutura registrada para este nó.

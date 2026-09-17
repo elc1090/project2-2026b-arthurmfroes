@@ -95,6 +95,10 @@ func TestCockroachCluster(t *testing.T) {
 		if wins != 1 || lease.Term != 1 {
 			t.Fatalf("wins=%d lease=%v", wins, lease)
 		}
+		var elected int
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM cluster_events WHERE kind='manager_elected' AND node_id=$1 AND manager_term=$2", lease.HolderID, lease.Term).Scan(&elected); err != nil || elected != 1 {
+			t.Fatalf("election event count=%d err=%v", elected, err)
+		}
 		renewed, err := store.RenewLease(ctx, lease, 5*time.Second)
 		if err != nil || renewed.Term != lease.Term || !renewed.ExpiresAt.After(lease.ExpiresAt) {
 			t.Fatalf("renewal=%v err=%v", renewed, err)
@@ -197,6 +201,10 @@ func TestCockroachCluster(t *testing.T) {
 		successor, err := store.AcquireLease(ctx, successorID, 5*time.Second)
 		if err != nil || successor.Term != lease.Term+1 {
 			t.Fatalf("successor=%v err=%v", successor, err)
+		}
+		var elected int
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM cluster_events WHERE kind='manager_elected' AND node_id=$1 AND manager_term=$2", successor.HolderID, successor.Term).Scan(&elected); err != nil || elected != 1 {
+			t.Fatalf("successor election event count=%d err=%v", elected, err)
 		}
 		if _, err := store.RenewLease(ctx, lease, time.Second); !errors.Is(err, ErrNoAuthority) {
 			t.Fatalf("old renewal=%v", err)

@@ -4,6 +4,8 @@ import {
   componentState,
   incidentSteps,
   leaseCurrent,
+  leaseRemainingSeconds,
+  nodeLifecycleSteps,
   observationAge,
   observationLabel,
   reasonLabel,
@@ -140,7 +142,37 @@ test("concessão envelhece com tempo decorrido sem depender do relógio civil lo
   } as AdminView;
   assert.equal(leaseCurrent(view, 4999), true);
   assert.equal(leaseCurrent(view, 5000), false);
+  assert.equal(leaseRemainingSeconds(view, 1), 5);
+  assert.equal(leaseRemainingSeconds(view, 4999), 1);
+  assert.equal(leaseRemainingSeconds(view, 5000), 0);
   assert.equal(leaseCurrent({ ...view, manager_id: null }, 0), false);
+});
+test("ciclo do nó expõe sincronização e readmissão separadamente", () => {
+  const syncing = nodeLifecycleSteps(
+    { ...node, state: "syncing", routed: false, synced_generation: 5 },
+    7,
+    [],
+  );
+  assert.equal(syncing.find((step) => step.id === "node-synchronization")?.complete, false);
+  assert.match(
+    syncing.find((step) => step.id === "node-synchronization")?.detail || "",
+    /geração 5 de 7/,
+  );
+  assert.equal(syncing.find((step) => step.id === "node-readmitted")?.complete, false);
+
+  const ready = nodeLifecycleSteps(node, 7, [
+    {
+      id: "admitted",
+      node_id: node.id,
+      kind: "node_admitted",
+      configuration_version: 4,
+      manager_term: 3,
+      details: null,
+      at: "2026-09-16T12:01:00Z",
+    },
+  ]);
+  assert.equal(ready.find((step) => step.id === "node-synchronization")?.complete, true);
+  assert.match(ready.find((step) => step.id === "node-readmitted")?.detail || "", /mandato 3/);
 });
 test("metadados desconhecidos de saúde e erro não são despejados na tela", () => {
   assert.equal(

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ClusterDiagram, NodeIncident } from "./ClusterDiagram";
+import { ClusterDiagram, LeaderElection, NodeIncident } from "./ClusterDiagram";
 import { FaultControls } from "./FaultControls";
 import type { AdminNode, AdminView } from "./admin-model";
 
@@ -47,6 +47,49 @@ test("diagrama identifica rota, gerenciador e componentes com botão selecionáv
   assert.match(html, /aria-pressed="true"/);
   assert.match(html, /Backend/);
   assert.match(html, /Object storage/);
+  assert.match(html, /Mandato 3: node-1 é o gerenciador/);
+  assert.match(html, /Concessão válida por mais 15 s/);
+});
+
+test("eleição expirada mostra disputa e histórico de mandatos", () => {
+  const html = renderToStaticMarkup(
+    createElement(LeaderElection, {
+      view: {
+        ...view,
+        events: [
+          {
+            id: "election-3",
+            node_id: "id-1",
+            kind: "manager_elected",
+            configuration_version: 4,
+            manager_term: 3,
+            details: null,
+            at: "2026-09-16T12:00:00Z",
+          },
+        ],
+      },
+      elapsed: 15000,
+    }),
+  );
+  assert.match(html, /eleição em andamento/);
+  assert.match(html, /O último titular foi node-1/);
+  assert.match(html, /Mandato 3/);
+});
+
+test("nó sincronizando mostra geração no próprio diagrama", () => {
+  const html = renderToStaticMarkup(
+    createElement(ClusterDiagram, {
+      view: {
+        ...view,
+        nodes: [{ ...node, state: "syncing", routed: false, synced_generation: 5 }],
+      },
+      elapsed: 0,
+      selectedID: null,
+      onSelect: () => {},
+    }),
+  );
+  assert.match(html, /Sincronizando publicações/);
+  assert.match(html, /geração 5 de 8/);
 });
 
 test("observação velha nunca aparece como nó saudável atual", () => {
