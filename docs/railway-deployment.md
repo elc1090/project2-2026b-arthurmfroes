@@ -25,6 +25,9 @@ Para demonstrar a entrada de um nó novo em um projeto já implantado:
 O segundo roteiro cria o próximo trio de serviços, atualiza os participantes do
 CockroachDB, os alvos do atuador e as rotas conhecidas pelo load balancer. Ao final,
 consulta o estado compartilhado até mostrar o nó sincronizado e `ready`.
+Se uma execução parar depois de criar os serviços, a próxima execução retoma esse
+mesmo nó. Depois de uma retirada permanente, o roteiro mantém o índice retirado fora
+do `COCKROACH_JOIN`, da replicação MinIO, do atuador e dos endpoints de controle.
 
 Os únicos arquivos locais gerados ficam em `.railway-local/`, ignorado pelo Git e
 com permissões restritas, e em `~/.ssh/acervo_railway_*`. A fingerprint apresentada

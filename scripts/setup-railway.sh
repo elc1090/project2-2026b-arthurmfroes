@@ -31,7 +31,9 @@ load_or_create_secrets
 node_services "$NODE_COUNT"
 refresh_services
 ensure_ssh_material
-configure_stack "$NODE_COUNT"
+NODE_INDICES=()
+for ((i=1; i<=NODE_COUNT; i++)); do NODE_INDICES+=("$i"); done
+configure_stack "${NODE_INDICES[@]}"
 
 printf '\nO script vai implantar %d nós e os serviços de entrada e atuação.\n' "$NODE_COUNT"
 confirm "Iniciar os deploys agora?" || { warn "configuração salva; execute o script novamente para continuar"; exit 0; }

@@ -226,7 +226,7 @@ EOF
 }
 
 ensure_ssh_material() {
-  local key="$HOME/.ssh/acervo_railway_fault" known="$HOME/.ssh/acervo_railway_known_hosts" fingerprint registered private existing_known
+  local key="$HOME/.ssh/acervo_railway_fault" known="$HOME/.ssh/acervo_railway_known_hosts" fingerprint registered registered_fingerprints private existing_known
   mkdir -p "$HOME/.ssh"
   chmod 700 "$HOME/.ssh"
 
@@ -239,8 +239,13 @@ ensure_ssh_material() {
   if [[ -f $key ]]; then
     fingerprint=$(ssh-keygen -lf "$key.pub" | awk '{print $2}')
     registered=$(railway ssh keys list 2>/dev/null || true)
-    if ! grep -Fq "$fingerprint" <<<"$registered"; then
-      railway ssh keys add --key "$key.pub" --name "acervo-fault-${RAILWAY_PROJECT_ID:0:8}" >/dev/null
+    registered_fingerprints=$(awk '
+      /^Registered SSH Keys:/ {section=1; next}
+      /^Local Keys/ {section=0}
+      section && /Fingerprint:/ {print}
+    ' <<<"$registered")
+    if ! grep -Fq "$fingerprint" <<<"$registered_fingerprints"; then
+      railway ssh keys add --key "$fingerprint" --name "acervo-fault-${RAILWAY_PROJECT_ID:0:8}" >/dev/null
       ok "chave pública cadastrada no Railway"
     else
       ok "chave pública já cadastrada"
@@ -303,17 +308,19 @@ wait_instance_id() {
 }
 
 configure_stack() {
-  local count=$1 i join endpoints targets backend_instance sql_instance storage_instance
+  local indices=("$@") i join endpoints targets backend_instance sql_instance storage_instance
+  ((${#indices[@]} >= 2)) || die "a topologia exige ao menos dois índices de nós"
   join=""
   endpoints=""
   targets='[]'
-  for ((i=1; i<=count; i++)); do
+  for i in "${indices[@]}"; do
+    [[ $i =~ ^[1-9][0-9]*$ ]] || die "índice de nó inválido: $i"
     join+="${join:+,}cockroach-$i.railway.internal:26257"
     endpoints+="${endpoints:+ }http://backend-node-$i.railway.internal:8080"
   done
 
-  log "Configurando $count nós"
-  for ((i=1; i<=count; i++)); do
+  log "Configurando ${#indices[@]} nós"
+  for i in "${indices[@]}"; do
     set_variable "cockroach-$i" PORT 8080
     set_variable "cockroach-$i" COCKROACH_ADVERTISE_ADDR "cockroach-$i.railway.internal:26257"
     set_variable "cockroach-$i" COCKROACH_JOIN "$join"
@@ -420,10 +427,44 @@ initialize_database() {
 }
 
 initialize_storage() {
-  local count=$1
-  log "Configurando replicação e bucket nos $count sites MinIO"
-  railway ssh --service minio-1 -- /bin/sh -s -- "$count" < "$PROJECT_ROOT/minio/init-railway.sh"
+  local indices=("$@") primary=${1:?informe os índices dos sites MinIO}
+  log "Configurando replicação e bucket em ${#indices[@]} sites MinIO"
+  railway ssh --service "minio-$primary" -- /bin/sh -s -- "${indices[@]}" < "$PROJECT_ROOT/minio/init-railway.sh"
   ok "sites MinIO configurados"
+}
+
+reconcile_storage_identities() {
+  local indices=("$@") i node identity cluster sql_node deployment site storage query updated attempt
+  log "Conferindo as identidades SQL e MinIO de ${#indices[@]} nós"
+  for i in "${indices[@]}"; do
+    node="backend-node-$i"
+    identity=""
+    for attempt in {1..5}; do
+      if identity=$(railway ssh --service "$node" -- /bin/sh -lc 'curl -fsS --max-time 8 -H "Authorization: Bearer $CONTROL_TOKEN" http://127.0.0.1:8080/internal/node/identity'); then
+        break
+      fi
+      sleep 2
+    done
+    [[ -n $identity ]] || die "não foi possível consultar a identidade de $node"
+    cluster=$(jq -r '.cluster_id // empty' <<<"$identity")
+    sql_node=$(jq -r '.sql_node_id // empty' <<<"$identity")
+    deployment=$(jq -r '.deployment_id // empty' <<<"$identity")
+    site=$(jq -r '.site_name // empty' <<<"$identity")
+    storage=$(jq -r '.storage_endpoint // empty' <<<"$identity")
+    [[ $(jq -r '.node_id // empty' <<<"$identity") == "$node" ]] || die "identidade inesperada devolvida por $node"
+    [[ $cluster =~ ^[0-9a-f-]{36}$ && $deployment =~ ^[0-9a-f-]{36}$ && $sql_node =~ ^[1-9][0-9]*$ ]] || die "identidade incompleta devolvida por $node"
+    [[ $site == "minio-$i" && $storage == "http://minio-$i.railway.internal:9000" ]] || die "identidade MinIO inesperada em $node"
+    query="UPDATE node_infrastructure AS i SET identity=jsonb_build_object('ClusterID','$cluster','SQLNodeID',$sql_node,'DeploymentID','$deployment','SiteName','$site','StorageEndpoint','$storage','CredentialProfile','default') FROM cluster_nodes AS n WHERE i.node_id=n.id AND n.node_id='$node' AND i.identity->>'ClusterID'='$cluster' AND i.identity->>'SQLNodeID'='$sql_node' AND i.identity->>'DeploymentID'='$deployment' AND i.identity->>'StorageEndpoint'='$storage' RETURNING n.node_id"
+    updated=""
+    for attempt in {1..5}; do
+      if updated=$(railway ssh --service cockroach-1 -- /cockroach/cockroach sql --insecure --host=localhost:26257 --database=drive_clone --format=tsv --execute="$query" 2>/dev/null); then
+        break
+      fi
+      sleep 2
+    done
+    awk -F $'\t' -v node="$node" '$1 == node {found=1} END {exit !found}' <<<"$updated" || die "a identidade persistida de $node não corresponde à infraestrutura observada"
+  done
+  ok "identidades de infraestrutura conferidas"
 }
 
 wait_cluster_admission() {
@@ -445,13 +486,15 @@ wait_cluster_admission() {
 }
 
 deploy_full_stack() {
-  local count=$1 i
+  local count=$1 i indices=()
+  for ((i=1; i<=count; i++)); do indices+=("$i"); done
   for ((i=1; i<=count; i++)); do deploy_service "cockroach-$i"; done
   initialize_database
   for ((i=1; i<=count; i++)); do deploy_service "minio-$i"; done
-  initialize_storage "$count"
+  initialize_storage "${indices[@]}"
   deploy_service fault-actuator backend
   for ((i=1; i<=count; i++)); do deploy_service "backend-node-$i"; done
+  reconcile_storage_identities "${indices[@]}"
   wait_cluster_admission "$count"
   deploy_service load-balancer
 }
@@ -470,16 +513,32 @@ public_domain() {
 }
 
 existing_node_count() {
-  local numbers expected=1 number
-  mapfile -t numbers < <(jq -r '.[].name | select(test("^backend-node-[0-9]+$")) | capture("backend-node-(?<n>[0-9]+)").n' <<<"$SERVICES_JSON" | sort -n)
-  ((${#numbers[@]} > 0)) || die "o projeto não contém nenhum backend-node-N"
+  local numbers expected=1 number last
+  mapfile -t numbers < <(jq -r '.[].name | select(test("^(backend-node|cockroach|minio)-[0-9]+$")) | capture("-(?<n>[0-9]+)$").n' <<<"$SERVICES_JSON" | sort -nu)
+  ((${#numbers[@]} > 0)) || die "o projeto não contém serviços de nó"
+  last=${numbers[$((${#numbers[@]} - 1))]}
   for number in "${numbers[@]}"; do
     ((number == expected)) || die "numeração de nós não contígua: esperado backend-node-$expected"
-    service_exists "cockroach-$number" || die "cockroach-$number ausente"
-    service_exists "minio-$number" || die "minio-$number ausente"
-    ((expected++))
+    if ((number < last)); then
+      service_exists "backend-node-$number" || die "backend-node-$number ausente"
+      service_exists "cockroach-$number" || die "cockroach-$number ausente"
+      service_exists "minio-$number" || die "minio-$number ausente"
+    fi
+    ((expected += 1))
   done
-  printf '%s' "${#numbers[@]}"
+  printf '%s' "$last"
+}
+
+cluster_node_state() {
+  local index=$1 output
+  output=$(railway ssh --service cockroach-1 -- /cockroach/cockroach sql --insecure --host=localhost:26257 --database=drive_clone --format=tsv --execute="SELECT state FROM cluster_nodes WHERE node_id='backend-node-$index'" 2>/dev/null || true)
+  awk 'NR > 1 && NF {print $1; exit}' <<<"$output"
+}
+
+active_node_indices() {
+  local output
+  output=$(railway ssh --service cockroach-1 -- /cockroach/cockroach sql --insecure --host=localhost:26257 --database=drive_clone --format=tsv --execute="SELECT node_id FROM cluster_nodes WHERE state!='removed' ORDER BY node_id" 2>/dev/null) || die "não foi possível consultar os nós ativos"
+  awk 'NR > 1 && $1 ~ /^backend-node-[0-9]+$/ {sub(/^backend-node-/, "", $1); print $1}' <<<"$output" | sort -n
 }
 
 observe_node_admission() {
